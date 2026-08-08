@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>影藏 PolyFlix</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- 页眉：页面最左侧 -->
+    <header class="app-header">
+            <h1>影藏 <span class="brand-en">PolyFlix</span></h1>
+            <p class="subtitle">把秘密藏进一段能正常播放的视频里</p>
+        </header>
+
+    <!-- 主体：两栏布局（居中） -->
+    <main class="app-main">
+        <div class="main-grid">
+            <!-- 左栏：第 1、2 步 -->
+            <div class="col col-left">
+                <section class="step">
+                    <h2><span class="step-num">1</span>选择伪装视频（MP4）</h2>
+                    <div class="dropzone" id="dz-mp4">
+                        <div class="dz-icon">🎬</div>
+                        <div class="dz-text">拖放 MP4 文件到此处，或 <span class="link">点击选择</span></div>
+                        <div class="dz-file" id="mp4-info"></div>
+                        <input type="file" id="input-mp4" accept="video/mp4" hidden>
+                    </div>
+                </section>
+
+                <section class="step">
+                    <h2><span class="step-num">2</span>选择要隐藏的文件</h2>
+                    <div class="dropzone" id="dz-hidden">
+                        <div class="dz-icon">📁</div>
+                        <div class="dz-text">拖放文件到此处，或 <span class="link">点击选择</span>（可多选）</div>
+                        <div class="dz-files" id="hidden-info"></div>
+                        <input type="file" id="input-hidden" multiple hidden>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 右栏：第 3、4 步 + 结果 -->
+            <div class="col col-right">
+                <section class="step">
+                    <h2><span class="step-num">3</span>配置嵌套结构</h2>
+                    <div class="config-grid">
+                        <div class="panel diagram-panel">
+                            <div class="panel-title">结构预览</div>
+                            <div class="layer-stack" id="layer-stack">
+                                <div class="layer layer-mp4">
+                                    <span class="layer-icon">🎬</span>
+                                    <div class="layer-info">
+                                        <span class="layer-name">MP4 外壳</span>
+                                        <span class="layer-desc" id="mp4-name">未选择</span>
+                                    </div>
+                                </div>
+                                <div class="layer layer-zip-outer">
+                                    <span class="layer-icon">📦</span>
+                                    <div class="layer-info">
+                                        <span class="layer-name">ZIP 外层</span>
+                                        <span class="layer-desc">改后缀 .zip 即可解压</span>
+                                    </div>
+                                    <span class="badge-lock" id="outer-lock" style="display:none">🔒</span>
+                                </div>
+                                <div class="layer layer-inner" id="layer-inner" style="display:none">
+                                    <span class="layer-icon">📦</span>
+                                    <div class="layer-info">
+                                        <span class="layer-name" id="inner-name">7z 内层</span>
+                                        <span class="layer-desc" id="inner-desc">用 7-Zip 打开</span>
+                                    </div>
+                                    <span class="badge-lock" id="inner-lock" style="display:none">🔒</span>
+                                </div>
+                                <div class="layer layer-files">
+                                    <span class="layer-icon">📁</span>
+                                    <div class="layer-info">
+                                        <span class="layer-name">隐藏的文件</span>
+                                        <span class="layer-desc" id="files-desc">0 个文件</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="panel options-panel">
+                            <div class="panel-title">选项</div>
+
+                            <div class="option-group">
+                                <label class="toggle">
+                                    <input type="checkbox" id="outer-pw-enable">
+                                    <span>外层 ZIP 加密码（AES-256）</span>
+                                </label>
+                                <input type="text" class="pw-input" id="outer-pw" placeholder="外层密码" disabled>
+                            </div>
+
+                            <div class="option-group">
+                                <div class="option-label">内层压缩包</div>
+                                <div class="radio-row">
+                                    <label class="radio"><input type="radio" name="inner" value="none" checked> 无</label>
+                                    <label class="radio"><input type="radio" name="inner" value="zip"> ZIP</label>
+                                    <label class="radio"><input type="radio" name="inner" value="7z"> 7z</label>
+                                </div>
+                                <input type="text" class="pw-input" id="inner-pw" placeholder="内层密码（可留空）" disabled>
+                                <div class="subhint">选 7z 或 ZIP 后，可加内层密码、对内层分卷</div>
+                            </div>
+
+                            <div class="option-group" id="split-group" style="display:none">
+                                <label class="toggle">
+                                    <input type="checkbox" id="split-enable" disabled>
+                                    <span>内层压缩包分卷</span>
+                                </label>
+                                <div class="split-size-row">
+                                    <input type="number" class="pw-input" id="split-size" placeholder="每卷大小" value="1" min="1" disabled>
+                                    <select id="split-unit" disabled>
+                                        <option value="mb">MB</option>
+                                        <option value="gb" selected>GB</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="option-group">
+                                <div class="option-label">压缩方式 <span class="subhint-inline" id="comp-hint">影响速度与体积</span></div>
+                                <select id="compression">
+                                    <option value="store" selected>存储（最快，不压缩）</option>
+                                    <option value="fastest">最快</option>
+                                    <option value="fast">较快</option>
+                                    <option value="normal">标准</option>
+                                    <option value="good">较好</option>
+                                    <option value="best">最好（最慢）</option>
+                                </select>
+                            </div>
+
+                            <div class="hint" id="hint"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- 构建区：页面下方居中，不分栏 -->
+        <div class="build-area">
+            <div class="size-hint" id="size-hint">无文件大小上限（支持 &gt;4GB）。构建需要约源文件总大小 2 倍的磁盘空间。</div>
+            <div class="result" id="result">
+                <div class="result-icon" id="result-icon">✅</div>
+                <div class="result-text">
+                    <div class="result-title" id="result-title">完成！文件已开始下载</div>
+                    <div class="result-detail" id="result-detail"></div>
+                </div>
+                <div class="result-side">
+                    <div class="result-time" id="result-time"></div>
+                    <button class="redownload-btn" id="redownload-btn" style="display:none">重新下载</button>
+                </div>
+            </div>
+            <button class="build-btn" id="build-btn">构建伪装文件</button>
+        </div>
+    </main>
+
+    <!-- 进度条：页脚上方，横跨整个页面，始终显示 -->
+    <div class="progress-bar" id="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+        <span class="progress-label" id="progress-label">就绪</span>
+        <span class="progress-timer" id="progress-timer"></span>
+    </div>
+
+    <!-- 页脚：固定底部居中 -->
+    <footer class="app-footer">
+            <span>© <span id="year"></span></span>
+            <a href="https://github.com/hcllmsx/polyflix" target="_blank" rel="noopener">影藏 PolyFlix</a>
+    </footer>
+
+    <!-- 调试日志面板：固定底部，默认隐藏，Ctrl+F9 切换 -->
+    <div class="log-panel" id="log-panel">
+        <div class="log-panel-header">
+            <span class="log-panel-title">调试日志 <kbd>Ctrl+F9</kbd> 切换</span>
+            <div class="log-panel-actions">
+                <button class="log-btn" id="log-copy">复制</button>
+                <button class="log-btn" id="log-export">导出</button>
+                <button class="log-btn" id="log-clear">清空</button>
+            </div>
+        </div>
+        <pre class="debug-log" id="debug-log"></pre>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

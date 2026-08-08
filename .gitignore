@@ -1,0 +1,38 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+
+# ===== PyInstaller 打包产物 =====
+build/
+dist/
+*.spec
+
+# ===== 运行/测试临时文件 =====
+_temp/
+test_*.py
+*.mp4
+*.zip
+*.7z
+polyflix-*.7z
+polyflix-*.zip
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini
