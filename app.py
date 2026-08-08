@@ -98,6 +98,18 @@ def log(msg: str, level: str = "info"):
     getattr(logger, level, logger.info)(msg)
 
 
+# 读取 VERSION 文件（单一真相源，dev 和打包后都从这里取）
+def _read_version() -> str:
+    try:
+        with open(os.path.join(BASE_DIR, "VERSION"), "r", encoding="utf-8") as f:
+            return f.read().strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+APP_VERSION = _read_version()
+
+
 # --------------------------------------------------------------------------- #
 # 页面
 # --------------------------------------------------------------------------- #
@@ -112,6 +124,19 @@ async def index():
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse(
+        os.path.join(_STATIC_DIR, "polyflix-favicon.ico"),
+        media_type="image/x-icon",
+    )
+
+
+@app.get("/api/version")
+async def version():
+    return {"version": APP_VERSION}
 
 
 @app.get("/api/log")

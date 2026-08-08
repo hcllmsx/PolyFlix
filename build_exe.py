@@ -19,9 +19,11 @@ cmd = [
     "--name", "PolyFlix",
     "--onedir",          # 目录模式，启动快（比 --onefile 快很多）
     "--windowed",        # 无控制台黑窗，纯桌面应用
-    # 静态文件 & 模板打进 exe
+    "--icon", "static/polyflix-favicon.ico",  # exe 图标
+    # 静态文件 & 模板 & 版本号打进 exe
     "--add-data", f"static{os.pathsep}static",
     "--add-data", f"templates{os.pathsep}templates",
+    "--add-data", f"VERSION{os.pathsep}VERSION",
     # uvicorn 动态导入的子模块（PyInstaller 扫不到）
     "--hidden-import", "uvicorn.logging",
     "--hidden-import", "uvicorn.protocols.http.auto",

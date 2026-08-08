@@ -30,11 +30,24 @@ body {
 /* 日志面板展开时，底部留出空间防止遮挡（含进度条 30px） */
 body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-panel-height) + 24px); }
 
-/* 主体居中容器 */
-.app-main { max-width: 1280px; margin: 0 auto; }
+/* 主体居中容器，擈满视口让构建区贴底 */
+.app-main {
+    max-width: 1280px; margin: 0 auto;
+    min-height: calc(100vh - var(--footer-height) - 30px - 48px);
+    display: flex; flex-direction: column;
+}
 
-/* 页眉：左上角 */
-.app-header { margin-bottom: 28px; }
+/* 页眉：在主体内，标题左 + 副标题右 */
+.app-header {
+    display: flex; align-items: center;
+    margin-bottom: 28px;
+}
+.app-logo {
+    height: 40px; width: auto;
+    margin-right: 12px;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
 .app-header h1 {
     font-size: 2rem; font-weight: 800;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -42,7 +55,10 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
     background-clip: text;
 }
 .brand-en { font-size: 1.3rem; opacity: 0.9; }
-.subtitle { color: var(--muted); margin-top: 4px; font-size: 0.9rem; }
+.subtitle {
+    margin-left: auto; text-align: right;
+    color: var(--muted); font-size: 0.9rem;
+}
 
 /* 两栏布局 */
 .main-grid {
@@ -140,7 +156,7 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
 
 /* 构建区：页面下方居中，不分栏 */
 .build-area {
-    margin-top: 32px;
+    margin-top: auto;
     display: flex; flex-direction: column;
     align-items: center; gap: 16px;
 }
@@ -301,6 +317,7 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
     transition: opacity 0.15s;
 }
 .app-footer a:hover { opacity: 0.8; text-decoration: underline; }
+.footer-version { color: var(--muted); font-size: 0.8rem; opacity: 0.6; }
 
 /* 调试日志面板：固定底部，默认隐藏 */
 .log-panel {

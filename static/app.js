@@ -6,8 +6,12 @@ const state = {
     config: { outerPassword: "", innerArchive: "none", innerPassword: "" }
 };
 
-// ---- 页脚年份 ----
+// ---- 页脚年份 + 版本号 ----
 document.getElementById("year").textContent = new Date().getFullYear();
+fetch("/api/version").then(r => r.json()).then(d => {
+    const el = document.getElementById("version");
+    if (el && d.version) el.textContent = "v" + d.version;
+}).catch(() => {});
 
 // ---- 文件大小格式化 ----
 function fmtSize(b) {
