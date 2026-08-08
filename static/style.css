@@ -354,6 +354,9 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
     cursor: pointer; font-size: 0.82rem; transition: all 0.15s;
 }
 .log-btn:hover { color: var(--text); border-color: var(--accent); }
+/* 关闭按钮：红色调，强调"收起"动作 */
+.log-btn-close { color: #f87171; border-color: rgba(239, 68, 68, 0.35); }
+.log-btn-close:hover { color: #fff; border-color: #ef4444; background: #ef4444; }
 
 .debug-log {
     flex: 1; overflow-y: auto;

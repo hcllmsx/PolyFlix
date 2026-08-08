@@ -57,6 +57,7 @@ def main():
         width=1280,
         height=900,
         min_size=(900, 600),
+        maximized=True,    # 启动即最大化（用户仍可手动还原）
     )
     webview.start()
     # 窗口关闭 → webview.start() 返回 → main() 结束 → daemon 线程自动终止 → 进程退出

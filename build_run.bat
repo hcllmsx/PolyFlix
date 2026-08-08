@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul 2>nul
 title 打包影藏 PolyFlix
 
@@ -51,17 +51,11 @@ echo   双击 dist\PolyFlix\PolyFlix.exe 即可运行
 echo ============================================
 echo.
 
-set /p DOZIP="是否压缩成 zip 方便分发？(y/n): "
-if /i "%DOZIP%"=="y" (
-    echo 正在压缩...
-    powershell -NoProfile -Command "Compress-Archive -Path 'dist\PolyFlix\*' -DestinationPath 'dist\PolyFlix-portable.zip' -Force"
-    if exist "dist\PolyFlix-portable.zip" (
-        echo.
-        echo 压缩完成：dist\PolyFlix-portable.zip
-        echo 可以直接把这个 zip 文件发给别人。
-    ) else (
-        echo 压缩失败。
-    )
+echo 正在压缩成 zip 方便分发...
+%PYEXE% make_zip.py
+if errorlevel 1 (
+    echo.
+    echo 压缩失败。
 )
 
 echo.

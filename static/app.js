@@ -155,6 +155,7 @@ const logBox = document.getElementById("debug-log");
 const logClear = document.getElementById("log-clear");
 const logCopy = document.getElementById("log-copy");
 const logExport = document.getElementById("log-export");
+const logClose = document.getElementById("log-close");
 
 // 统一日志条目数组：{t, level, msg, source: 'client'|'server'}
 let logEntries = [];
@@ -211,6 +212,14 @@ function toggleLogPanel() {
         renderLog();
     }
 }
+
+// 关闭按钮：仅收起面板（不影响 Ctrl+F9 切换逻辑）
+function closeLogPanel() {
+    logPanelVisible = false;
+    logPanel.classList.remove("visible");
+    document.body.classList.remove("log-open");
+}
+logClose.addEventListener("click", closeLogPanel);
 
 // Ctrl+F9 切换日志面板
 document.addEventListener("keydown", (e) => {
