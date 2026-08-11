@@ -116,7 +116,7 @@ cmd = [
     # 静态文件 & 模板 & 版本号打进 exe
     "--add-data", f"static{os.pathsep}static",
     "--add-data", f"templates{os.pathsep}templates",
-    "--add-data", f"VERSION{os.pathsep}VERSION",
+    "--add-data", f"VERSION{os.pathsep}.",  # VERSION 是文件，放到 _MEIPASS 根目录（不能写 "VERSION;VERSION"，那会变成 _MEIPASS/VERSION/VERSION）
     # uvicorn 动态导入的子模块（PyInstaller 扫不到）
     "--hidden-import", "uvicorn.logging",
     "--hidden-import", "uvicorn.protocols.http.auto",

@@ -36,7 +36,10 @@
                         <div class="dz-icon">📁</div>
                         <div class="dz-text">拖放文件到此处，或 <span class="link">点击选择</span>（可多选）</div>
                         <div class="dz-files" id="hidden-info"></div>
-                        <div class="dz-reselect-hint" id="hidden-reselect" style="display:none">继续点击或拖放可追加文件</div>
+                        <div class="dz-reselect-hint" id="hidden-reselect" style="display:none">
+                            <span class="dz-reselect-text">继续点击或拖放可追加文件</span>
+                            <button type="button" class="clear-all-btn" id="clear-all-btn">清空全部</button>
+                        </div>
                         <input type="file" id="input-hidden" multiple hidden>
                     </div>
                 </section>
@@ -168,6 +171,7 @@
             <span>© <span id="year"></span></span>
             <a href="https://github.com/hcllmsx/PolyFlix" target="_blank" rel="noopener">影藏 PolyFlix</a>
             <span class="footer-version" id="version">v?</span>
+            <button class="footer-cache-btn" id="cache-clean-btn" title="清理本软件运行产生的缓存文件（位于 %TEMP%/PolyFlix）">清理缓存</button>
     </footer>
 
     <!-- 调试日志面板：固定底部，默认隐藏，Ctrl+F9 切换 -->
@@ -182,6 +186,12 @@
             </div>
         </div>
         <pre class="debug-log" id="debug-log"></pre>
+    </div>
+
+    <!-- Toast 提示：固定右上角，用于导出/保存等操作的状态反馈 -->
+    <div class="toast" id="toast">
+        <span class="toast-icon" id="toast-icon"></span>
+        <span class="toast-msg" id="toast-msg"></span>
     </div>
 
     <script src="/static/app.js"></script>

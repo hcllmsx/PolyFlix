@@ -111,11 +111,25 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
 .dropzone.has-file .dz-files { margin-top: 0; }
 .dz-reselect-hint {
     margin-top: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
     font-size: 0.75rem;
     color: var(--muted);
     opacity: 0.7;
-    text-align: center;
 }
+.dz-reselect-hint .dz-reselect-text { flex: 1; }
+/* MP4 区域没有“清空全部”按钮，文字居中 */
+#mp4-reselect { justify-content: center; }
+
+.clear-all-btn {
+    padding: 3px 10px;
+    font-size: 0.72rem; font-weight: 600;
+    color: #f87171; background: transparent;
+    border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 4px;
+    cursor: pointer; transition: all 0.15s;
+    flex-shrink: 0;
+}
+.clear-all-btn:hover { background: #ef4444; border-color: #ef4444; color: #fff; }
 
 /* 已选文件列表条目（含删除按钮） */
 .dz-files .file-item {
@@ -362,6 +376,18 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
 .app-footer a:hover { opacity: 0.8; text-decoration: underline; }
 .footer-version { color: var(--muted); font-size: 0.8rem; opacity: 0.6; }
 
+/* 页脚"清理缓存"按钮 */
+.footer-cache-btn {
+    margin-left: 10px;
+    padding: 3px 12px;
+    font-size: 0.78rem; font-weight: 600;
+    color: var(--muted); background: transparent;
+    border: 1px solid var(--border); border-radius: 5px;
+    cursor: pointer; transition: all 0.15s;
+}
+.footer-cache-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--surface-2); }
+.footer-cache-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* 调试日志面板：固定底部，默认隐藏 */
 .log-panel {
     position: fixed; bottom: var(--footer-height); left: 0; right: 0;
@@ -414,3 +440,36 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
 .debug-log .log-err { color: #f87171; }
 .debug-log .log-ok { color: #34d399; }
 .debug-log .log-client { color: #60a5fa; }
+
+/* Toast 提示：固定右上角，用于保存/导出操作的状态反馈 */
+.toast {
+    position: fixed;
+    top: 20px; right: 20px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    z-index: 2000;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    font-size: 0.9rem;
+    color: var(--text);
+    min-width: 200px;
+    max-width: 420px;
+    transition: opacity 0.2s, transform 0.2s;
+    opacity: 0;
+    transform: translateX(20px);
+}
+.toast.visible {
+    display: flex;
+    opacity: 1;
+    transform: translateX(0);
+}
+.toast.loading { border-color: var(--accent); }
+.toast.success { border-color: var(--success); }
+.toast.error { border-color: #ef4444; }
+.toast-icon { font-size: 1.1rem; line-height: 1; flex-shrink: 0; }
+.toast.loading .toast-icon { animation: toast-spin 0.8s linear infinite; }
+@keyframes toast-spin { to { transform: rotate(360deg); } }
