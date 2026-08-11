@@ -269,7 +269,12 @@ def build_inner_archive(entries, cfg: dict, out_path: str):
             filters = [{"id": py7zr.FILTER_COPY}]
         else:
             filters = [{"id": py7zr.FILTER_LZMA2, "preset": _7Z_PRESET.get(method, 5)}]
-        with py7zr.SevenZipFile(out_path, "w", password=password, filters=filters) as z:
+        # py7zr 1.1+ 中仅传 password 不会真正加密，必须 header_encryption=True
+        # （7z 加密是全局的，header_encryption 同时加密文件内容和元数据）
+        zkw = {"password": password, "filters": filters}
+        if password:
+            zkw["header_encryption"] = True
+        with py7zr.SevenZipFile(out_path, "w", **zkw) as z:
             for i, (arcname, fpath) in enumerate(entries):
                 log(f"  7z [{i+1}/{len(entries)}]: {arcname} ({fmt_bytes(os.path.getsize(fpath))})")
                 z.write(fpath, arcname)
