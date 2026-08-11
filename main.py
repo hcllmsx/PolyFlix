@@ -10,14 +10,62 @@ import sys
 import time
 import threading
 import urllib.request
+import shutil
 
 import uvicorn
 import webview
 
-from app import app
+from app import app, _builds, log
 
 PORT = 18181
 HOST = "127.0.0.1"
+
+# 流式拷贝块大小（与 app.py 一致）
+CHUNK_SIZE = 8 * 1024 * 1024
+
+
+class JsApi:
+    """JS ↔ Python 桥接：打包后的 exe 里浏览器原生下载不可靠，
+    用 pywebview 的原生保存对话框替代。"""
+
+    def save_download(self, download_id):
+        """弹出原生保存对话框，把构建产物（mp4 + zip 拼接）写到用户选定的路径。"""
+        if not download_id or download_id not in _builds:
+            log(f"下载失败: ID={download_id!r} 不存在或已失效", level="error")
+            return {"ok": False, "error": "下载链接已失效，请重新构建"}
+
+        info = _builds[download_id]
+        log(f"pywebview 保存对话框: filename={info['filename']}, size={info['size']}")
+
+        # 弹出保存对话框（pywebview 的方法可在任意线程调用）
+        try:
+            result = webview.windows[0].create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=info["filename"],
+                file_types=("MP4 Video (*.mp4)", "All files (*.*)"),
+            )
+        except Exception as e:
+            log(f"保存对话框出错: {e}", level="error")
+            return {"ok": False, "error": f"保存对话框出错: {e}"}
+
+        if not result:
+            log("用户取消了保存")
+            return {"ok": False, "cancelled": True}
+
+        # pywebview 返回 str 或 list[str]，统一取第一个
+        dest = result if isinstance(result, str) else result[0]
+        log(f"开始写入伪装文件: {dest}")
+
+        try:
+            with open(dest, "wb") as out:
+                for src_path in (info["mp4_path"], info["zip_path"]):
+                    with open(src_path, "rb") as src:
+                        shutil.copyfileobj(src, out, length=CHUNK_SIZE)
+            log(f"保存完成: {dest}")
+            return {"ok": True, "path": dest, "size": info["size"]}
+        except Exception as e:
+            log(f"写入文件失败: {e}", level="error")
+            return {"ok": False, "error": f"写入文件失败: {e}"}
 
 
 def wait_for_server(timeout=15):
@@ -58,6 +106,7 @@ def main():
         height=900,
         min_size=(900, 600),
         maximized=True,    # 启动即最大化（用户仍可手动还原）
+        js_api=JsApi(),    # 注入 JS 桥接：原生保存对话框处理下载
     )
     webview.start()
     # 窗口关闭 → webview.start() 返回 → main() 结束 → daemon 线程自动终止 → 进程退出

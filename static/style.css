@@ -103,6 +103,49 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
 .dz-file, .dz-files { margin-top: 12px; color: var(--success); font-size: 0.9rem; }
 .dz-files div { margin: 3px 0; }
 
+/* 已选择文件后：隐藏大图标和提示文字，紧凑展示已选文件 */
+.dropzone.has-file { padding: 18px 20px; text-align: left; }
+.dropzone.has-file .dz-icon,
+.dropzone.has-file .dz-text { display: none; }
+.dropzone.has-file .dz-file,
+.dropzone.has-file .dz-files { margin-top: 0; }
+.dz-reselect-hint {
+    margin-top: 10px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    opacity: 0.7;
+    text-align: center;
+}
+
+/* 已选文件列表条目（含删除按钮） */
+.dz-files .file-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; margin: 4px 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.88rem;
+    transition: border-color 0.15s, background 0.15s;
+}
+.dz-files .file-item:hover { border-color: rgba(239, 68, 68, 0.35); }
+.dz-files .file-item-name {
+    color: var(--text); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dz-files .file-item-size { color: var(--muted); font-size: 0.8rem; flex-shrink: 0; }
+.dz-files .file-remove-btn {
+    flex-shrink: 0; padding: 0;
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 4px; color: var(--muted);
+    cursor: pointer; font-size: 0.72rem; line-height: 1;
+    transition: all 0.15s;
+}
+.dz-files .file-remove-btn:hover {
+    background: #ef4444; border-color: #ef4444; color: #fff;
+}
+
 /* Config grid（右栏内） */
 .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 1180px) { .config-grid { grid-template-columns: 1fr; } }

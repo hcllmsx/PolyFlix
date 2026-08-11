@@ -37,7 +37,10 @@ function setupDropZone(zoneId, inputId, onFiles) {
     const input = document.getElementById(inputId);
 
     zone.addEventListener("click", () => input.click());
-    input.addEventListener("change", () => { if (input.files.length) onFiles(input.files); });
+    input.addEventListener("change", () => {
+        if (input.files.length) onFiles(input.files);
+        input.value = "";  // 重置，使再次选择同一文件也能触发 change
+    });
 
     ["dragenter", "dragover"].forEach(e => zone.addEventListener(e, ev => {
         ev.preventDefault(); zone.classList.add("dragover");
@@ -53,20 +56,64 @@ function setupDropZone(zoneId, inputId, onFiles) {
 // MP4 选择
 setupDropZone("dz-mp4", "input-mp4", files => {
     state.mp4 = files[0];
+    const zone = document.getElementById("dz-mp4");
+    zone.classList.add("has-file");
     document.getElementById("mp4-info").textContent = `${state.mp4.name} · ${fmtSize(state.mp4.size)}`;
     document.getElementById("mp4-name").textContent = state.mp4.name;
+    document.getElementById("mp4-reselect").style.display = "block";
     addClientLog(`选择伪装视频: ${state.mp4.name} (${fmtSize(state.mp4.size)})`);
 });
 
-// 隐藏文件选择
+// 隐藏文件选择（追加模式，不去重除非完全相同）
 setupDropZone("dz-hidden", "input-hidden", files => {
-    state.hiddenFiles = Array.from(files);
-    document.getElementById("hidden-info").innerHTML =
-        state.hiddenFiles.map(f => `<div>${f.name} · ${fmtSize(f.size)}</div>`).join("");
-    document.getElementById("files-desc").textContent = `${state.hiddenFiles.length} 个文件`;
-    addClientLog(`选择隐藏文件: ${state.hiddenFiles.length} 个`);
-    state.hiddenFiles.forEach(f => addClientLog(`  └ ${f.name} (${fmtSize(f.size)})`));
+    const incoming = Array.from(files);
+    const existingKeys = new Set(state.hiddenFiles.map(f => `${f.name}|${f.size}|${f.lastModified || 0}`));
+    let added = 0;
+    for (const f of incoming) {
+        const key = `${f.name}|${f.size}|${f.lastModified || 0}`;
+        if (!existingKeys.has(key)) {
+            state.hiddenFiles.push(f);
+            existingKeys.add(key);
+            added++;
+        }
+    }
+    renderHiddenFiles();
+    addClientLog(`选择隐藏文件: +${added}（本次），共 ${state.hiddenFiles.length} 个`);
+    incoming.forEach(f => addClientLog(`  └ ${f.name} (${fmtSize(f.size)})`));
 });
+
+// 渲染隐藏文件列表（每条带删除按钮）
+function renderHiddenFiles() {
+    const zone = document.getElementById("dz-hidden");
+    const info = document.getElementById("hidden-info");
+    const reselectHint = document.getElementById("hidden-reselect");
+    if (state.hiddenFiles.length > 0) {
+        zone.classList.add("has-file");
+        reselectHint.style.display = "block";
+        info.innerHTML = state.hiddenFiles.map((f, i) =>
+            `<div class="file-item">` +
+            `<span class="file-item-name">${escapeHtml(f.name)}</span>` +
+            `<span class="file-item-size">${fmtSize(f.size)}</span>` +
+            `<button class="file-remove-btn" data-idx="${i}" title="移除此文件">✕</button>` +
+            `</div>`
+        ).join("");
+        // 绑定删除按钮
+        info.querySelectorAll(".file-remove-btn").forEach(btn => {
+            btn.addEventListener("click", e => {
+                e.stopPropagation();  // 阻止冒泡到 dropzone，避免触发文件选择框
+                const idx = parseInt(btn.dataset.idx, 10);
+                const removed = state.hiddenFiles.splice(idx, 1);
+                renderHiddenFiles();
+                if (removed[0]) addClientLog(`移除文件: ${removed[0].name}`);
+            });
+        });
+    } else {
+        zone.classList.remove("has-file");
+        reselectHint.style.display = "none";
+        info.innerHTML = "";
+    }
+    document.getElementById("files-desc").textContent = `${state.hiddenFiles.length} 个文件`;
+}
 
 // ---- 配置控件 ----
 const outerPwEnable = document.getElementById("outer-pw-enable");
@@ -286,19 +333,66 @@ const resultDetail = document.getElementById("result-detail");
 const redownloadBtn = document.getElementById("redownload-btn");
 let lastDownloadUrl = null;
 let lastDownloadName = null;
+let lastDownloadId = null;
 
-function triggerNativeDownload(url, name) {
+// 检测是否运行在 pywebview（打包后的 exe）环境中
+function hasPywebviewApi() {
+    return !!(window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_download === "function");
+}
+
+// 等待 pywebview API 就绪（页面加载后 API 需要一小会才注入；构建完成时通常早就好了）
+function waitForPywebviewApi(maxWaitMs = 3000) {
+    return new Promise(resolve => {
+        if (hasPywebviewApi()) { resolve(true); return; }
+        const start = Date.now();
+        const tick = setInterval(() => {
+            if (hasPywebviewApi()) { clearInterval(tick); resolve(true); }
+            else if (Date.now() - start > maxWaitMs) { clearInterval(tick); resolve(false); }
+        }, 100);
+    });
+}
+
+async function triggerNativeDownload(url, name, downloadId) {
+    // 打包后的 exe（pywebview）：浏览器原生下载不可靠，改用原生保存对话框
+    if (window.pywebview !== undefined || hasPywebviewApi()) {
+        await waitForPywebviewApi();
+    }
+    if (hasPywebviewApi()) {
+        try {
+            addClientLog(`等待保存对话框…`);
+            const result = await window.pywebview.api.save_download(downloadId);
+            if (result && result.ok) {
+                addClientLog(`文件已保存到: ${result.path}`);
+                return true;
+            } else if (result && result.cancelled) {
+                addClientLog(`用户取消了保存`);
+                return false;
+            } else {
+                const errMsg = (result && result.error) ? result.error : "未知错误";
+                addClientLog(`保存失败: ${errMsg}`, "error");
+                alert(`保存失败: ${errMsg}`);
+                return false;
+            }
+        } catch (e) {
+            addClientLog(`保存失败: ${e.message || e}`, "error");
+            alert(`保存失败: ${e.message || e}`);
+            return false;
+        }
+    }
+
+    // 浏览器（dev 模式）：用 <a download> 触发原生下载
     const a = document.createElement("a");
     a.href = url;
     a.download = name;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    return true;
 }
 
 redownloadBtn.addEventListener("click", () => {
     if (lastDownloadUrl) {
-        triggerNativeDownload(lastDownloadUrl, lastDownloadName);
+        triggerNativeDownload(lastDownloadUrl, lastDownloadName, lastDownloadId);
         addClientLog(`重新下载: ${lastDownloadName}`);
     }
 });
@@ -489,7 +583,8 @@ document.getElementById("build-btn").addEventListener("click", async () => {
         const data = await resp.json();
         lastDownloadUrl = data.downloadUrl;
         lastDownloadName = data.filename;
-        triggerNativeDownload(data.downloadUrl, data.filename);
+        lastDownloadId = data.downloadUrl.split("/").pop();
+        triggerNativeDownload(data.downloadUrl, data.filename, lastDownloadId);
         addClientLog(`下载已触发: ${data.filename} (${fmtSize(data.size)})`);
 
         const overhead = data.size - state.mp4.size;
@@ -502,11 +597,20 @@ document.getElementById("build-btn").addEventListener("click", async () => {
         }
         steps += ` → 拿到隐藏文件。`;
 
-        showResult(true, `完成！已开始下载：${data.filename}`,
+        // exe（pywebview）模式下弹原生保存对话框，浏览器模式下自动下载
+        const isWebview = hasPywebviewApi();
+        const title = isWebview
+            ? `完成！请选择保存位置：${data.filename}`
+            : `完成！已开始下载：${data.filename}`;
+        const saveHint = isWebview
+            ? `请在弹出的对话框中选择保存位置；若取消，点右侧“重新下载”按钮即可重试。`
+            : `若下载被取消，点右侧“重新下载”按钮即可重试。`;
+
+        showResult(true, title,
             `伪装文件大小：<b>${fmtSize(data.size)}</b> ` +
             `（视频 ${fmtSize(state.mp4.size)} + 隐藏部分 ${fmtSize(overhead)}）<br>` +
             `使用方法：双击当视频播放；${steps}<br>` +
-            `若下载被取消，点右侧“重新下载”按钮即可重试。`);
+            saveHint);
         redownloadBtn.style.display = "block";
         buildOk = true;
         addClientLog(`========== 构建成功 ==========`);
