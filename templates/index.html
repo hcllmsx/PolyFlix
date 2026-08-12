@@ -13,14 +13,20 @@
         <header class="app-header">
             <img src="/static/影藏PolyFlix-logo.png" class="app-logo" alt="影藏 PolyFlix">
             <h1>影藏 <span class="brand-en">PolyFlix</span></h1>
-            <p class="subtitle">把秘密藏进一段能正常播放的视频里</p>
+            <div class="header-action-area">
+                <p class="subtitle">把秘密藏进一段能正常播放的视频里</p>
+                <div class="header-btns" id="header-btns">
+                    <button class="header-btn" id="new-file-btn" title="清空第一步和第二步已选的文件，重新开始">新建文件</button>
+                    <button class="header-btn" id="cache-clean-btn" title="清理本软件运行产生的缓存文件（位于 %TEMP%/PolyFlix）">清理缓存</button>
+                </div>
+            </div>
         </header>
 
         <div class="main-grid">
             <!-- 左栏：第 1、2 步 -->
             <div class="col col-left">
                 <section class="step">
-                    <h2><span class="step-num">1</span>选择伪装视频（MP4）</h2>
+                    <h2><span class="step-num">1</span>选择外壳伪装视频（仅MP4）</h2>
                     <div class="dropzone" id="dz-mp4">
                         <div class="dz-icon">🎬</div>
                         <div class="dz-text">拖放 MP4 文件到此处，或 <span class="link">点击选择</span></div>
@@ -31,7 +37,7 @@
                 </section>
 
                 <section class="step">
-                    <h2><span class="step-num">2</span>选择要隐藏的文件</h2>
+                    <h2><span class="step-num">2</span>选择要隐藏的文件（任意格式）</h2>
                     <div class="dropzone" id="dz-hidden">
                         <div class="dz-icon">📁</div>
                         <div class="dz-text">拖放文件到此处，或 <span class="link">点击选择</span>（可多选）</div>
@@ -171,7 +177,6 @@
             <span>© <span id="year"></span></span>
             <a href="https://github.com/hcllmsx/PolyFlix" target="_blank" rel="noopener">影藏 PolyFlix</a>
             <span class="footer-version" id="version">v?</span>
-            <button class="footer-cache-btn" id="cache-clean-btn" title="清理本软件运行产生的缓存文件（位于 %TEMP%/PolyFlix）">清理缓存</button>
     </footer>
 
     <!-- 调试日志面板：固定底部，默认隐藏，Ctrl+F9 切换 -->
@@ -182,6 +187,7 @@
                 <button class="log-btn" id="log-copy">复制</button>
                 <button class="log-btn" id="log-export">导出</button>
                 <button class="log-btn" id="log-clear">清空</button>
+                <button class="log-btn" id="log-reset-pwd-warn" title='恢复"构建前密码提醒"弹窗（清除"不再提醒"状态）'>重置密码提醒</button>
                 <button class="log-btn log-btn-close" id="log-close">✕ 关闭</button>
             </div>
         </div>
@@ -192,6 +198,34 @@
     <div class="toast" id="toast">
         <span class="toast-icon" id="toast-icon"></span>
         <span class="toast-msg" id="toast-msg"></span>
+    </div>
+
+    <!-- 模态警告对话框：用于阻止性操作（如选择 PolyFlix 产物当封面） -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-icon" id="modal-icon">⚠️</div>
+            <div class="modal-title" id="modal-title">警告</div>
+            <div class="modal-body" id="modal-body"></div>
+            <button class="modal-btn" id="modal-btn">我知道了</button>
+        </div>
+    </div>
+
+    <!-- 密码确认弹窗：设置了密码后，构建前提醒用户牢记密码 -->
+    <div class="modal-overlay" id="pwd-modal-overlay">
+        <div class="modal" id="pwd-modal">
+            <div class="modal-icon">🔐</div>
+            <div class="modal-title">密码安全提醒</div>
+            <div class="modal-body pwd-body">
+                你已为隐藏文件设置了密码。<br>
+                <b>请务必牢记密码！</b> PolyFlix 没有密码找回功能，一旦遗忘，隐藏在视频中的文件将<b>永久无法解密、无法取回</b>。<br>
+                <span class="pwd-tip">建议将密码妥善保存到密码管理器或离线记录中，避免遗忘。</span>
+            </div>
+            <div class="modal-btn-row">
+                <button class="modal-btn modal-btn-secondary" id="pwd-btn-back">我再看看</button>
+                <button class="modal-btn modal-btn-primary" id="pwd-btn-once">我知道了</button>
+                <button class="modal-btn modal-btn-ghost" id="pwd-btn-never">不再提醒</button>
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>

@@ -127,6 +127,32 @@ def fmt_bytes(n: int) -> str:
         n /= 1024
     return f"{n:.1f} TB"
 
+
+# ZIP End of Central Directory 记录的签名（PK\x05\x06）
+_ZIP_EOCD_SIG = b'PK\x05\x06'
+
+
+def is_polyflix_product(filepath: str) -> bool:
+    """检测一个文件是否是 PolyFlix 产物（MP4 + ZIP 拼接）。
+
+    PolyFlix 产物 = MP4 视频 + ZIP 数据拼接在尾部。
+    ZIP 文件末尾有 EOCD (End of Central Directory) 记录，签名是 PK\\x05\\x06。
+    正常 MP4 文件末尾不会出现这个签名。
+    """
+    try:
+        file_size = os.path.getsize(filepath)
+        if file_size < 22:  # ZIP EOCD 最小 22 字节
+            return False
+        # EOCD 最大 22 + 65535（注释）= 65557 字节，留点余量
+        scan_size = min(file_size, 65557 + 1024)
+        with open(filepath, 'rb') as f:
+            f.seek(-scan_size, 2)  # 从末尾往回读
+            tail = f.read()
+        # 从后往前找 EOCD 签名（取最后一个，确保是文件最末尾的 ZIP）
+        return tail.rfind(_ZIP_EOCD_SIG) != -1
+    except Exception:
+        return False
+
 # --------------------------------------------------------------------------- #
 # 日志：既打到控制台，也存内存，供前端 /api/log 拉取
 # --------------------------------------------------------------------------- #

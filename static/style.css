@@ -56,9 +56,48 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
 }
 .brand-en { font-size: 1.3rem; opacity: 0.9; }
 .subtitle {
-    margin-left: auto; text-align: right;
     color: var(--muted); font-size: 0.9rem;
+    text-align: right; white-space: nowrap;
+    transition: opacity 0.3s ease;
 }
+.subtitle.faded { opacity: 0; pointer-events: none; }
+
+/* 右上角操作区：副标题与按钮叠加，默认显示副标题 */
+.header-action-area {
+    margin-left: auto;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    align-self: stretch;
+    min-height: 1.6em;
+    padding: 0 2px;
+}
+.header-btns {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+.header-btns.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+.header-btn {
+    padding: 4px 12px;
+    font-size: 0.78rem; font-weight: 600;
+    color: var(--muted); background: transparent;
+    border: 1px solid var(--border); border-radius: 5px;
+    cursor: pointer; transition: all 0.15s;
+    white-space: nowrap;
+}
+.header-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--surface-2); }
+.header-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 两栏布局 */
 .main-grid {
@@ -376,18 +415,6 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
 .app-footer a:hover { opacity: 0.8; text-decoration: underline; }
 .footer-version { color: var(--muted); font-size: 0.8rem; opacity: 0.6; }
 
-/* 页脚"清理缓存"按钮 */
-.footer-cache-btn {
-    margin-left: 10px;
-    padding: 3px 12px;
-    font-size: 0.78rem; font-weight: 600;
-    color: var(--muted); background: transparent;
-    border: 1px solid var(--border); border-radius: 5px;
-    cursor: pointer; transition: all 0.15s;
-}
-.footer-cache-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--surface-2); }
-.footer-cache-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
 /* 调试日志面板：固定底部，默认隐藏 */
 .log-panel {
     position: fixed; bottom: var(--footer-height); left: 0; right: 0;
@@ -473,3 +500,105 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
 .toast-icon { font-size: 1.1rem; line-height: 1; flex-shrink: 0; }
 .toast.loading .toast-icon { animation: toast-spin 0.8s linear infinite; }
 @keyframes toast-spin { to { transform: rotate(360deg); } }
+
+/* 模态警告对话框 */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.modal-overlay.visible {
+    display: flex;
+    opacity: 1;
+}
+.modal {
+    background: var(--surface-2);
+    border: 2px solid #f59e0b;
+    border-radius: var(--radius);
+    padding: 32px 36px 28px;
+    max-width: 520px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(245, 158, 11, 0.2);
+    text-align: center;
+    transform: scale(0.92);
+    transition: transform 0.2s;
+}
+.modal-overlay.visible .modal { transform: scale(1); }
+.modal-icon {
+    font-size: 3rem;
+    line-height: 1;
+    margin-bottom: 12px;
+}
+.modal-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f59e0b;
+    margin-bottom: 14px;
+}
+.modal-body {
+    color: var(--text);
+    font-size: 0.9rem;
+    line-height: 1.7;
+    text-align: left;
+    white-space: pre-wrap;
+    margin-bottom: 24px;
+}
+.modal-body .modal-file {
+    color: #f87171;
+    font-weight: 600;
+    word-break: break-all;
+}
+.modal-body .modal-hint {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+.modal-body .modal-hint b { color: var(--text); }
+.modal-btn {
+    background: #f59e0b;
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 36px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+}
+.modal-btn:hover { opacity: 0.9; }
+.modal-btn:active { transform: scale(0.97); }
+
+/* 密码确认弹窗：三按钮 */
+.modal-btn-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+.modal-btn-secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
+.modal-btn-secondary:hover { opacity: 1; color: var(--text); border-color: var(--text); }
+.modal-btn-primary { background: #f59e0b; }
+.modal-btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    font-weight: 500;
+}
+.modal-btn-ghost:hover { opacity: 1; color: var(--text); border-color: var(--text); }
+
+/* 密码弹窗正文：简洁左对齐，行间留白，无段落/边框/缩进 */
+.pwd-body { line-height: 1.85; white-space: normal; }
+.pwd-tip { color: var(--muted); }

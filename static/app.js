@@ -65,6 +65,120 @@ function hideToast() {
     if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
 }
 
+// ---- 模态警告对话框 ----
+const modalOverlay = document.getElementById("modal-overlay");
+const modalTitle = document.getElementById("modal-title");
+const modalBody = document.getElementById("modal-body");
+const modalBtn = document.getElementById("modal-btn");
+
+function showModal(title, bodyHtml) {
+    modalTitle.textContent = title;
+    modalBody.innerHTML = bodyHtml;
+    modalOverlay.classList.add("visible");
+}
+modalBtn.addEventListener("click", () => modalOverlay.classList.remove("visible"));
+modalOverlay.addEventListener("click", e => {
+    if (e.target === modalOverlay) modalOverlay.classList.remove("visible");
+});
+
+// PolyFlix 产物警告
+function showPolyflixWarning(filename) {
+    const body =
+        `<span class="modal-file">${escapeHtml(filename)}</span> 已经是 PolyFlix 产物（视频 + 隐藏数据拼接），不能用作伪装视频。` +
+        `<div class="modal-hint">` +
+        `<b>原因：</b>再次作为封面会导致之前的隐藏文件被埋在文件中间，标准解压工具无法取出，造成数据永久丢失。<br><br>` +
+        `<b>正确做法：</b><br>` +
+        `• 使用原始视频作为伪装视频<br>` +
+        `• 如需添加更多隐藏文件，请用原始视频重新构建（把所有要隐藏的文件一起放进去）` +
+        `</div>`;
+    showModal("不能使用 PolyFlix 产物作为伪装视频", body);
+}
+
+// 检测文件是否是 PolyFlix 产物（MP4 + ZIP 拼接）
+// 通过读取文件末尾，查找 ZIP EOCD 签名 PK\x05\x06
+async function isPolyflixProduct(file) {
+    // exe 模式返回的对象没有 slice 方法，跳过（Python 端已检测）
+    if (!file || !file.slice) return false;
+    try {
+        const size = file.size;
+        if (size < 22) return false;  // ZIP EOCD 最小 22 字节
+        // EOCD 最大 22 + 65535（注释）= 65557 字节，留点余量
+        const scanSize = Math.min(size, 66560);
+        const start = Math.max(0, size - scanSize);
+        const blob = file.slice(start, size);
+        const buf = await blob.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        // 从后往前找 PK\x05\x06 签名
+        for (let i = bytes.length - 4; i >= 0; i--) {
+            if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B &&
+                bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+                return true;
+            }
+        }
+        return false;
+    } catch (e) {
+        return false;
+    }
+}
+
+// ---- 密码确认弹窗（构建前提醒牢记密码）----
+const PWD_WARN_KEY = "polyflix.pwdWarnDismissed";
+const pwdModalOverlay = document.getElementById("pwd-modal-overlay");
+const pwdModalEl = document.getElementById("pwd-modal");
+const pwdBtnBack = document.getElementById("pwd-btn-back");
+const pwdBtnOnce = document.getElementById("pwd-btn-once");
+const pwdBtnNever = document.getElementById("pwd-btn-never");
+
+function isPwdWarnDismissed() {
+    try { return localStorage.getItem(PWD_WARN_KEY) === "1"; } catch (e) { return false; }
+}
+function setPwdWarnDismissed() {
+    try { localStorage.setItem(PWD_WARN_KEY, "1"); } catch (e) { /* localStorage 不可用时忽略 */ }
+}
+
+// 弹窗左右晃动（点击外部非按钮区时触发，提示用户必须点按钮）
+// 用 Web Animations API，避免 CSS 优先级冲突和 transition 干扰
+function shakePwdModal() {
+    const keyframes = [
+        { transform: "scale(1) translateX(0)" },
+        { transform: "scale(1) translateX(-12px)" },
+        { transform: "scale(1) translateX(12px)" },
+        { transform: "scale(1) translateX(-8px)" },
+        { transform: "scale(1) translateX(8px)" },
+        { transform: "scale(1) translateX(-4px)" },
+        { transform: "scale(1) translateX(0)" },
+    ];
+    pwdModalEl.animate(keyframes, { duration: 450, easing: "ease" });
+}
+
+// 返回 Promise：true=继续构建，false=取消构建
+function showPwdConfirmDialog() {
+    return new Promise(resolve => {
+        pwdModalOverlay.classList.add("visible");
+        const cleanup = () => {
+            pwdModalOverlay.classList.remove("visible");
+            pwdModalOverlay.removeEventListener("click", onOverlayClick);
+            pwdBtnBack.removeEventListener("click", onBack);
+            pwdBtnOnce.removeEventListener("click", onOnce);
+            pwdBtnNever.removeEventListener("click", onNever);
+        };
+        const onBack = () => { cleanup(); resolve(false); };
+        const onOnce = () => { cleanup(); resolve(true); };
+        const onNever = () => { setPwdWarnDismissed(); cleanup(); resolve(true); };
+        // 点击遮罩层（弹窗外部）→ 晃动，不关闭
+        const onOverlayClick = e => {
+            if (e.target === pwdModalOverlay) {
+                e.stopPropagation();
+                shakePwdModal();
+            }
+        };
+        pwdBtnBack.addEventListener("click", onBack);
+        pwdBtnOnce.addEventListener("click", onOnce);
+        pwdBtnNever.addEventListener("click", onNever);
+        pwdModalOverlay.addEventListener("click", onOverlayClick);
+    });
+}
+
 // ---- 拖放区 ----
 // exe 模式：点击 → pywebview 原生文件对话框（拿本地路径，不走 HTTP 上传）
 // 浏览器模式：点击 → <input type="file">；支持拖放
@@ -101,18 +215,39 @@ function setupDropZone(zoneId, inputId, onFiles, onPywebviewSelect) {
 }
 
 // MP4 选择
-setupDropZone("dz-mp4", "input-mp4", files => {
-    state.mp4 = files[0];
+setupDropZone("dz-mp4", "input-mp4", async files => {
+    const file = files[0];
+
+    // dev 模式 / 拖放：file 是 File 对象，用 JS 检测是否 PolyFlix 产物
+    if (file.slice) {
+        const isProduct = await isPolyflixProduct(file);
+        if (isProduct) {
+            addClientLog(`⚠️ 拒绝选择 PolyFlix 产物作为封面: ${file.name}`, "error");
+            showPolyflixWarning(file.name);
+            return;  // 不设置 state.mp4
+        }
+    }
+
+    state.mp4 = file;
     const zone = document.getElementById("dz-mp4");
     zone.classList.add("has-file");
     document.getElementById("mp4-info").textContent = `${state.mp4.name} · ${fmtSize(state.mp4.size)}`;
     document.getElementById("mp4-name").textContent = state.mp4.name;
     document.getElementById("mp4-reselect").style.display = "block";
-    addClientLog(`选择伪装视频: ${state.mp4.name} (${fmtSize(state.mp4.size)})`);
+    addClientLog(`选择外壳伪装视频: ${state.mp4.name} (${fmtSize(state.mp4.size)})`);
 }, async () => {
     await waitForPywebviewApi();
     const r = await window.pywebview.api.select_mp4();
-    return r ? [r] : null;  // 统一返回数组
+    if (!r) return null;
+
+    // Python 端检测到 PolyFlix 产物
+    if (r.error === "polyflix_product") {
+        addClientLog(`⚠️ 拒绝选择 PolyFlix 产物作为封面: ${r.name}`, "error");
+        showPolyflixWarning(r.name || "该文件");
+        return null;  // 不触发 onFiles
+    }
+
+    return [r];  // 统一返回数组
 });
 
 // 隐藏文件选择（追加模式，不去重除非完全相同）
@@ -423,6 +558,18 @@ logExport.addEventListener("click", async () => {
     URL.revokeObjectURL(url);
 });
 
+// 重置"不再提醒"状态：下次构建设密码时重新弹出密码确认弹窗
+document.getElementById("log-reset-pwd-warn").addEventListener("click", () => {
+    try {
+        localStorage.removeItem(PWD_WARN_KEY);
+        showToast("已重置密码提醒，下次构建将重新提示", "success");
+        addClientLog('已重置密码提醒状态（清除"不再提醒"）');
+    } catch (e) {
+        showToast("重置失败", "error");
+        addClientLog(`重置密码提醒失败: ${e.message || e}`, "error");
+    }
+});
+
 // ---- 构建结果区 ----
 const resultBox = document.getElementById("result");
 const resultIcon = document.getElementById("result-icon");
@@ -667,7 +814,7 @@ function uploadBuild(fd, onProgress) {
 }
 
 document.getElementById("build-btn").addEventListener("click", async () => {
-    if (!state.mp4) { alert("请先选择伪装视频 MP4"); return; }
+    if (!state.mp4) { alert("请先选择外壳伪装视频 MP4"); return; }
     if (state.hiddenFiles.length === 0) { alert("请选择要隐藏的文件"); return; }
 
     const innerVal = document.querySelector('input[name="inner"]:checked').value;
@@ -681,6 +828,19 @@ document.getElementById("build-btn").addEventListener("click", async () => {
         splitSizeMB: innerVal !== "none" && splitEnable.checked ? splitMB : 0,
         compression: compression.value
     };
+
+    // ---- 密码确认弹窗：设置了任何密码时，构建前提醒牢记密码 ----
+    const hasOuterPwd = !!(state.config.outerPassword);
+    const hasInnerPwd = !!(state.config.innerPassword);
+    if ((hasOuterPwd || hasInnerPwd) && !isPwdWarnDismissed()) {
+        addClientLog("等待用户确认密码提醒…");
+        const confirmed = await showPwdConfirmDialog();
+        if (!confirmed) {
+            addClientLog("用户取消构建（密码提醒：我再看看）");
+            return;  // 取消构建，返回检查
+        }
+        addClientLog("用户已确认密码提醒，继续构建");
+    }
 
     const compName = { store: "存储", fastest: "最快", fast: "较快", normal: "标准", good: "较好", best: "最好" }[compression.value] || "标准";
 
@@ -850,6 +1010,114 @@ cacheCleanBtn.addEventListener("click", async () => {
         cacheCleanBtn.disabled = false;
         cacheCleanBtn.textContent = origText;
     }
+});
+
+// ---- 右上角副标题 / 按钮切换 ----
+// 默认显示副标题；鼠标持续移动 2s+ → 副标题渐变消失，显示按钮
+// 鼠标直接进入右上角操作区 → 立即显示按钮（无需等 2s）
+const headerActionArea = document.querySelector(".header-action-area");
+const subtitleEl = document.querySelector(".subtitle");
+const headerBtns = document.getElementById("header-btns");
+
+let lastMouseMove = 0;        // 最近一次 mousemove 时间戳
+let moveStartedAt = null;     // 本次连续移动的起始时间（null=未在移动）
+let moveAccumDist = 0;        // 本次连续移动的累计距离（px）
+let lastMouseX = 0;           // 上次鼠标 X
+let lastMouseY = 0;           // 上次鼠标 Y
+let inHeader = false;         // 鼠标是否在右上角操作区
+let btnsShown = false;        // 按钮当前是否显示
+
+// 移动需同时满足：持续 1.5s 以上 + 累计移动 50px 以上，避免误触发
+const MOVE_TIME_MS = 1500;
+const MOVE_DIST_PX = 50;
+
+function showHeaderBtns() {
+    if (btnsShown) return;
+    btnsShown = true;
+    subtitleEl.classList.add("faded");
+    headerBtns.classList.add("visible");
+}
+function showSubtitle() {
+    if (!btnsShown) return;
+    btnsShown = false;
+    subtitleEl.classList.remove("faded");
+    headerBtns.classList.remove("visible");
+}
+
+document.addEventListener("mousemove", e => {
+    const now = Date.now();
+    if (moveStartedAt === null) {
+        // 开始一段新的连续移动
+        moveStartedAt = now;
+        moveAccumDist = 0;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+    } else {
+        // 累加与上次的位移距离
+        const dx = e.clientX - lastMouseX;
+        const dy = e.clientY - lastMouseY;
+        moveAccumDist += Math.sqrt(dx * dx + dy * dy);
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+    }
+    lastMouseMove = now;
+});
+
+// 轮询检测：连续移动 1.5s+ 且累计 50px+ → 显示按钮；停止移动 3s → 恢复副标题
+setInterval(() => {
+    const now = Date.now();
+    const idle = now - lastMouseMove;
+    if (idle > 3000) {
+        // 鼠标已停止
+        moveStartedAt = null;
+        moveAccumDist = 0;
+        if (!inHeader) showSubtitle();
+    } else {
+        // 持续移动中：需同时满足时间和距离
+        if (moveStartedAt &&
+            now - moveStartedAt >= MOVE_TIME_MS &&
+            moveAccumDist >= MOVE_DIST_PX) {
+            showHeaderBtns();
+        }
+    }
+}, 100);
+
+// 鼠标进入右上角操作区 → 立即显示按钮
+headerActionArea.addEventListener("mouseenter", () => { inHeader = true; showHeaderBtns(); });
+headerActionArea.addEventListener("mouseleave", () => { inHeader = false; });
+
+// ---- "新建文件"按钮：一键清空第一步和第二步，回到初始状态 ----
+document.getElementById("new-file-btn").addEventListener("click", () => {
+    // 第一步：清空 MP4
+    state.mp4 = null;
+    const mp4Zone = document.getElementById("dz-mp4");
+    mp4Zone.classList.remove("has-file");
+    document.getElementById("mp4-info").textContent = "";
+    document.getElementById("mp4-name").textContent = "未选择";
+    document.getElementById("mp4-reselect").style.display = "none";
+
+    // 第二步：清空隐藏文件
+    const hiddenCount = state.hiddenFiles.length;
+    state.hiddenFiles = [];
+    renderHiddenFiles();
+
+    // 隐藏构建结果区
+    resultBox.classList.remove("shown");
+    resultBox.classList.remove("error");
+    document.getElementById("redownload-btn").style.display = "none";
+
+    // 重置空间提示
+    document.getElementById("size-hint").classList.remove("warn");
+    document.getElementById("size-hint").innerHTML = "无文件大小上限（支持 &gt;4GB）。构建需要约源文件总大小 2 倍的磁盘空间。";
+
+    // 重置构建按钮（防止处于 disabled 状态）
+    const buildBtn = document.getElementById("build-btn");
+    buildBtn.disabled = false;
+    buildBtn.textContent = "构建伪装文件";
+    document.body.classList.remove("building");
+
+    addClientLog(`新建文件：已清空伪装视频和 ${hiddenCount} 个隐藏文件，回到初始状态`);
+    showToast("已清空，可重新开始", "success");
 });
 
 // 页面加载完打个招呼

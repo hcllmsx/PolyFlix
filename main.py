@@ -17,7 +17,7 @@ import shutil
 import uvicorn
 import webview
 
-from app import app, _builds, log, do_build, POLYFLIX_TEMP_DIR, fmt_bytes
+from app import app, _builds, log, do_build, POLYFLIX_TEMP_DIR, fmt_bytes, is_polyflix_product
 
 PORT = 18181
 HOST = "127.0.0.1"
@@ -58,6 +58,10 @@ class JsApi:
         if not path:
             return None
         try:
+            # 检测是否是 PolyFlix 产物（MP4 + ZIP 拼接），拒绝当封面
+            if is_polyflix_product(path):
+                log(f"拒绝选择 PolyFlix 产物作为封面: {path}")
+                return {"error": "polyflix_product", "name": os.path.basename(path)}
             return {"path": path, "name": os.path.basename(path), "size": os.path.getsize(path)}
         except Exception as e:
             log(f"解析 MP4 路径出错: {e}", level="error")
