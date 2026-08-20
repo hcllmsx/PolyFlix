@@ -1,6 +1,7 @@
 // 影藏 PolyFlix —— 前端逻辑
 
 const state = {
+    mode: "zip",  // "zip" = 文件隐藏模式；"dual" = 双视频模式
     mp4: null,
     hiddenFiles: [],
     config: { outerPassword: "", innerArchive: "none", innerPassword: "" }
@@ -8,9 +9,95 @@ const state = {
 
 // ---- 页脚年份 + 版本号 ----
 document.getElementById("year").textContent = new Date().getFullYear();
+const versionEl = document.getElementById("version");
+const updateHintEl = document.getElementById("update-hint");
+let currentVersion = "";        // 本地版本号（无 v 前缀）
+
+// 版本号格式 YY.M.D（如 26.8.12），按数字段比较。返回 1/-1/0。
+function compareVersions(a, b) {
+    const pa = (a || "").split(".").map(n => parseInt(n, 10) || 0);
+    const pb = (b || "").split(".").map(n => parseInt(n, 10) || 0);
+    const len = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i++) {
+        const da = pa[i] || 0;
+        const db = pb[i] || 0;
+        if (da !== db) return da > db ? 1 : -1;
+    }
+    return 0;
+}
+
+// 渲染更新提示（检测完成后调用）
+// state: "new" | "latest" | "checking" | "error" | ""  newVer: 远程版本号
+function renderUpdateHint(state, newVer) {
+    if (!updateHintEl) return;
+    updateHintEl.className = "footer-update-hint";
+    switch (state) {
+        case "new":
+            updateHintEl.classList.add("hint-new");
+            updateHintEl.innerHTML =
+                `<a href="https://github.com/hcllmsx/PolyFlix/releases" target="_blank" rel="noopener">` +
+                `有新版本 v${newVer}，点击下载</a>`;
+            break;
+        case "latest":
+            updateHintEl.classList.add("hint-latest");
+            updateHintEl.textContent = "已是最新";
+            break;
+        case "checking":
+            updateHintEl.classList.add("hint-checking");
+            updateHintEl.textContent = "检查中…";
+            break;
+        case "error":
+            updateHintEl.classList.add("hint-error");
+            updateHintEl.textContent = "检查失败，点击重试";
+            break;
+        default:
+            updateHintEl.textContent = "";
+    }
+}
+
+// 检查更新：fetch 仓库根目录 VERSION 文件
+// raw URL：https://raw.githubusercontent.com/<owner>/<repo>/main/VERSION
+const UPDATE_URL = "https://raw.githubusercontent.com/hcllmsx/PolyFlix/main/VERSION";
+
+async function checkForUpdate(manual = false) {
+    if (!currentVersion) return;
+    renderUpdateHint("checking");
+    try {
+        // 加时间戳防 CDN 缓存
+        const r = await fetch(`${UPDATE_URL}?t=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const remote = (await r.text()).trim();
+        if (!remote) throw new Error("空响应");
+        if (compareVersions(remote, currentVersion) > 0) {
+            renderUpdateHint("new", remote);
+            if (manual) showToast(`发现新版本 v${remote}，已显示在页脚`, "success");
+        } else {
+            renderUpdateHint("latest");
+            if (manual) showToast("已是最新版本", "success");
+        }
+        addClientLog(`更新检查完成：本地 ${currentVersion}，远程 ${remote}`);
+    } catch (e) {
+        renderUpdateHint("error");
+        if (manual) showToast(`检查更新失败：${e.message || e}`, "error");
+        addClientLog(`更新检查失败: ${e.message || e}`, "error");
+    }
+}
+
+// 点击版本号 → 手动触发检测
+versionEl.style.cursor = "pointer";
+versionEl.addEventListener("click", () => checkForUpdate(true));
+updateHintEl.addEventListener("click", e => {
+    // "检查失败，点击重试" 也触发重新检测（链接除外）
+    if (e.target === updateHintEl) checkForUpdate(true);
+});
+
 fetch("/api/version").then(r => r.json()).then(d => {
-    const el = document.getElementById("version");
-    if (el && d.version) el.textContent = "v" + d.version;
+    if (versionEl && d.version) {
+        currentVersion = d.version;
+        versionEl.textContent = "v" + d.version;
+        // 启动后自动检测一次（静默，不弹 toast）
+        checkForUpdate(false);
+    }
 }).catch(() => {});
 
 // ---- 文件大小格式化 ----
@@ -94,15 +181,54 @@ function showPolyflixWarning(filename) {
     showModal("不能使用 PolyFlix 产物作为伪装视频", body);
 }
 
-// 检测文件是否是 PolyFlix 产物（MP4 + ZIP 拼接）
-// 通过读取文件末尾，查找 ZIP EOCD 签名 PK\x05\x06
+// 检测文件是否是 PolyFlix 产物（两种模式）。
+// 两种产物在外观上都是合法的 MP4，这里识别其隐藏数据标记。
+async function isPflxProduct(file) {
+    if (!file || !file.slice) return false;
+    try {
+        const size = file.size;
+        if (size < 28) return false;
+        let offset = 0;
+        let guard = 0;  // 防御恶意/损坏文件的死循环
+        while (offset < size && guard++ < 4096) {
+            const buf = await file.slice(offset, offset + 16).arrayBuffer();
+            if (buf.byteLength < 8) return false;
+            const dv = new DataView(buf);
+            const b = new Uint8Array(buf);
+            const size32 = dv.getUint32(0);
+            let boxSize, hdrLen;
+            if (size32 === 1) {
+                if (buf.byteLength < 16) return false;
+                boxSize = Number(dv.getBigUint64(8));
+                hdrLen = 16;
+            } else if (size32 === 0) {
+                boxSize = size - offset;
+                hdrLen = 8;
+            } else {
+                boxSize = size32;
+                hdrLen = 8;
+            }
+            if (boxSize < hdrLen || offset + boxSize > size) return false;
+            const t = String.fromCharCode(b[4], b[5], b[6], b[7]);
+            if (t === "free" && boxSize - hdrLen >= 20) {
+                const h = new Uint8Array(await file.slice(offset + hdrLen, offset + hdrLen + 20).arrayBuffer());
+                if (h.length >= 4 && String.fromCharCode(h[0], h[1], h[2], h[3]) === "PFLX") return true;
+            }
+            offset += boxSize;
+        }
+        return false;
+    } catch (e) {
+        return false;
+    }
+}
+
 async function isPolyflixProduct(file) {
     // exe 模式返回的对象没有 slice 方法，跳过（Python 端已检测）
     if (!file || !file.slice) return false;
     try {
         const size = file.size;
-        if (size < 22) return false;  // ZIP EOCD 最小 22 字节
-        // EOCD 最大 22 + 65535（注释）= 65557 字节，留点余量
+        if (size < 22) return false;  // 结构最小 22 字节
+        // ---- 模式一：文件隐藏 ----
         const scanSize = Math.min(size, 66560);
         const start = Math.max(0, size - scanSize);
         const blob = file.slice(start, size);
@@ -115,7 +241,8 @@ async function isPolyflixProduct(file) {
                 return true;
             }
         }
-        return false;
+        // ---- 模式二：双视频 ----
+        return await isPflxProduct(file);
     } catch (e) {
         return false;
     }
@@ -177,6 +304,51 @@ function showPwdConfirmDialog() {
         pwdBtnNever.addEventListener("click", onNever);
         pwdModalOverlay.addEventListener("click", onOverlayClick);
     });
+}
+
+// ---- 模式切换：zip（文件隐藏）/ dual（双视频） ----
+const modeSwitch = document.getElementById("mode-switch");
+const VIDEO_EXTS = ["mp4", "mkv", "flv", "webm", "avi", "mov", "ts", "m4v", "wmv", "mpg", "mpeg", "3gp", "rmvb", "vob"];
+
+modeSwitch.querySelectorAll(".mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => setMode(btn.dataset.mode));
+});
+
+function setMode(mode) {
+    if (state.mode === mode) return;
+    state.mode = mode;
+    modeSwitch.querySelectorAll(".mode-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.mode === mode));
+    // 切换模式时清空隐藏文件（两种模式语义不同，避免误构建）
+    if (state.hiddenFiles.length) {
+        state.hiddenFiles = [];
+        renderHiddenFiles();
+        addClientLog("切换模式：已清空已选隐藏文件");
+    }
+    // 第二步文案与选择器
+    document.getElementById("step2-title").textContent =
+        mode === "dual" ? "选择隐藏的视频（任意视频格式，不转码）" : "选择要隐藏的文件（任意格式）";
+    document.getElementById("hidden-dz-icon").textContent = mode === "dual" ? "🎞️" : "📁";
+    document.getElementById("hidden-dz-text").innerHTML = mode === "dual"
+        ? '拖放要隐藏的视频到此处，或 <span class="link">点击选择</span>（单个文件）'
+        : '拖放文件到此处，或 <span class="link">点击选择</span>（可多选）';
+    document.getElementById("input-hidden").accept = mode === "dual"
+        ? "video/*," + VIDEO_EXTS.map(e => "." + e).join(",")
+        : "";
+    // 配置面板与结构图：zip-only / dual-only 显隐
+    document.querySelectorAll(".zip-only").forEach(el => { el.style.display = mode === "dual" ? "none" : ""; });
+    document.querySelectorAll(".dual-only").forEach(el => { el.style.display = mode === "dual" ? "" : "none"; });
+    // split-group 默认就是 display:none，切回 zip 时恢复由 updateDiagram 负责
+    updateDiagram();
+    addClientLog(`切换到${mode === "dual" ? "双视频模式" : "文件隐藏模式"}`);
+}
+
+function isDualMode() { return state.mode === "dual"; }
+
+// 双视频模式：文件名看起来不像视频时给出提醒（不阻断，载荷本质可以是任意文件）
+function looksLikeVideo(name) {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    return VIDEO_EXTS.includes(ext);
 }
 
 // ---- 拖放区 ----
@@ -250,8 +422,20 @@ setupDropZone("dz-mp4", "input-mp4", async files => {
     return [r];  // 统一返回数组
 });
 
-// 隐藏文件选择（追加模式，不去重除非完全相同）
+// 隐藏文件选择：zip 模式追加多选；dual 模式单选替换
 setupDropZone("dz-hidden", "input-hidden", files => {
+    if (isDualMode()) {
+        // 双视频模式：只取第一个，替换式选择
+        const f = Array.from(files)[0];
+        if (!f) return;
+        if (!looksLikeVideo(f.name)) {
+            addClientLog(`⚠️ 双视频模式建议选择视频文件（${f.name} 可能不是视频）`, "error");
+        }
+        state.hiddenFiles = [f];
+        renderHiddenFiles();
+        addClientLog(`选择隐藏视频: ${f.name} (${fmtSize(f.size)})`);
+        return;
+    }
     const incoming = Array.from(files);
     const existingKeys = new Set(state.hiddenFiles.map(f => `${f.name}|${f.size}|${f.path || f.lastModified || 0}`));
     let added = 0;
@@ -302,6 +486,13 @@ function renderHiddenFiles() {
         info.innerHTML = "";
     }
     document.getElementById("files-desc").textContent = `${state.hiddenFiles.length} 个文件`;
+    // 双视频模式：结构图隐藏视频层显示隐藏视频名
+    if (state.hiddenFiles.length === 1) {
+        document.getElementById("freebox-desc").textContent =
+            `${state.hiddenFiles[0].name}（原样保存，不压缩）`;
+    } else {
+        document.getElementById("freebox-desc").textContent = "原样保存，不压缩";
+    }
 }
 
 // “清空全部”按钮
@@ -353,6 +544,23 @@ function updateDiagram() {
     const val = document.querySelector('input[name="inner"]:checked').value;
     const innerLayer = document.getElementById("layer-inner");
     const filesLayer = document.querySelector(".layer-files");
+    const freeboxLayer = document.getElementById("layer-freebox");
+    const zipOuterLayer = document.querySelector(".layer-zip-outer");
+
+    // 双视频模式：隐藏 ZIP/内层/文件层
+    if (isDualMode()) {
+        freeboxLayer.style.display = "flex";
+        zipOuterLayer.style.display = "none";
+        innerLayer.style.display = "none";
+        filesLayer.style.display = "none";
+        document.getElementById("hint").textContent =
+            `当前：双视频模式。隐藏视频原样存进 MP4，用影现播放器打开产物即可播放。`;
+        return;
+    }
+
+    freeboxLayer.style.display = "none";
+    zipOuterLayer.style.display = "flex";
+    filesLayer.style.display = "flex";
 
     splitGroup.style.display = (val === "none") ? "none" : "block";
 
@@ -753,20 +961,22 @@ function updateProgressFromLog(serverLog) {
     if (!progressActive) return;
     const text = serverLog.map(e => String(e.msg)).join("\n");
 
-    // 特殊处理：ZIP 大文件写入进度（"写入 xxx: NN%"）
+    // 特殊处理：大文件写入进度（“写入 xxx: NN%”，两种模式共用）
     const writeMatches = text.match(/写入 .*?: (\d+)%/g);
     if (writeMatches && writeMatches.length > 0) {
         const lastPct = parseInt(writeMatches[writeMatches.length - 1].match(/(\d+)%/)[1], 10);
-        // 映射 0-100% → 50%-78%（ZIP 写入阶段）
+        // 映射 0-100% → 50%-78%（写入阶段）
         const barPct = 50 + Math.round(lastPct * 0.28);
-        setProgressStage(barPct, `正在写入压缩包… ${lastPct}%`);
+        setProgressStage(barPct, `正在写入数据… ${lastPct}%`);
     }
 
     const stages = [
         { kw: "构建成功", pct: 100, label: "完成 ✓" },
         { kw: "下载 ID", pct: 95, label: "准备下载…" },
-        { kw: "拼接:", pct: 90, label: "拼接 MP4 + ZIP…" },
+        { kw: "拼接:", pct: 90, label: "拼接产物…" },
+        { kw: "隐藏视频封装完成", pct: 80, label: "隐藏视频封装完成…" },
         { kw: "外层 ZIP 完成", pct: 80, label: "外层打包完成…" },
+        { kw: "封装隐藏视频", pct: 55, label: "正在封装隐藏视频…" },
         { kw: "外层 ZIP [", pct: 58, label: "正在创建外层 ZIP…" },
         { kw: "外层 ZIP: 条目数", pct: 55, label: "开始创建外层 ZIP…" },
         { kw: "内层已分卷", pct: 52, label: "内层分卷完成…" },
@@ -778,6 +988,7 @@ function updateProgressFromLog(serverLog) {
         { kw: "无内层", pct: 45, label: "开始创建外层 ZIP…" },
         { kw: "磁盘空间", pct: 38, label: "检查磁盘空间…" },
         { kw: "隐藏文件:", pct: 30, label: "准备隐藏文件…" },
+        { kw: "模式: 双视频", pct: 25, label: "双视频模式…" },
         { kw: "MP4 复制完成", pct: 22, label: "MP4 准备完成…" },
         { kw: "MP4 硬链接完成", pct: 20, label: "MP4 准备完成…" },
         { kw: "收到构建请求", pct: 8, label: "已收到请求…" },
@@ -816,11 +1027,16 @@ function uploadBuild(fd, onProgress) {
 document.getElementById("build-btn").addEventListener("click", async () => {
     if (!state.mp4) { alert("请先选择外壳伪装视频 MP4"); return; }
     if (state.hiddenFiles.length === 0) { alert("请选择要隐藏的文件"); return; }
+    if (isDualMode() && state.hiddenFiles.length !== 1) {
+        alert("双视频模式只能隐藏 1 个视频文件（当前 " + state.hiddenFiles.length + " 个）。需要隐藏多个文件请切换到文件隐藏模式。");
+        return;
+    }
 
     const innerVal = document.querySelector('input[name="inner"]:checked').value;
     const splitVal = parseInt(splitSize.value) || 100;
     const splitMB = splitUnit.value === "gb" ? splitVal * 1024 : splitVal;
     state.config = {
+        mode: state.mode,  // zip | dual
         outerPassword: outerPwEnable.checked ? outerPw.value : "",
         innerArchive: innerVal,
         innerPassword: innerVal !== "none" ? innerPw.value : "",
@@ -845,9 +1061,14 @@ document.getElementById("build-btn").addEventListener("click", async () => {
     const compName = { store: "存储", fastest: "最快", fast: "较快", normal: "标准", good: "较好", best: "最好" }[compression.value] || "标准";
 
     addClientLog(`========== 开始构建 ==========`);
+    addClientLog(`模式: ${isDualMode() ? "双视频" : "文件隐藏（ZIP）"}`);
     addClientLog(`伪装视频: ${state.mp4.name}`);
     addClientLog(`隐藏文件: ${state.hiddenFiles.length} 个`);
-    addClientLog(`配置: 内层=${innerVal}, 压缩=${compName}, 外层密码=${state.config.outerPassword ? "是" : "否"}, 内层密码=${state.config.innerPassword ? "是" : "否"}, 分卷=${state.config.splitVolume ? splitMB + "MB/卷" : "否"}`);
+    if (isDualMode()) {
+        addClientLog(`配置: 隐藏视频=${state.hiddenFiles[0].name}，不压缩、不加密、不转码`);
+    } else {
+        addClientLog(`配置: 内层=${innerVal}, 压缩=${compName}, 外层密码=${state.config.outerPassword ? "是" : "否"}, 内层密码=${state.config.innerPassword ? "是" : "否"}, 分卷=${state.config.splitVolume ? splitMB + "MB/卷" : "否"}`);
+    }
 
     const btn = document.getElementById("build-btn");
     btn.disabled = true;
@@ -947,14 +1168,19 @@ document.getElementById("build-btn").addEventListener("click", async () => {
     const downloadOk = await triggerNativeDownload(lastDownloadUrl, buildData.filename, lastDownloadId);
 
     const overhead = buildData.size - state.mp4.size;
-    let steps = `改后缀为 <code>.zip</code> 解压`;
-    if (state.config.outerPassword) steps += `（输入外层密码）`;
-    if (state.config.innerArchive !== "none") {
-        const tool = state.config.innerArchive === "7z" ? "7-Zip" : "解压工具";
-        steps += ` → 用 ${tool} 打开内层`;
-        if (state.config.innerPassword) steps += `（输入内层密码）`;
+    let steps;
+    if (isDualMode() || buildData.mode === "dual") {
+        steps = `双击 → 当普通视频播放；用 <b>影现播放器</b> 打开该文件 → 播放隐藏的视频`;
+    } else {
+        steps = `改后缀为 <code>.zip</code> 解压`;
+        if (state.config.outerPassword) steps += `（输入外层密码）`;
+        if (state.config.innerArchive !== "none") {
+            const tool = state.config.innerArchive === "7z" ? "7-Zip" : "解压工具";
+            steps += ` → 用 ${tool} 打开内层`;
+            if (state.config.innerPassword) steps += `（输入内层密码）`;
+        }
+        steps += ` → 拿到隐藏文件。`;
     }
-    steps += ` → 拿到隐藏文件。`;
 
     const isWebview = isExeMode();
     const sizeInfo = `伪装文件大小：<b>${fmtSize(buildData.size)}</b> ` +
@@ -1118,6 +1344,48 @@ document.getElementById("new-file-btn").addEventListener("click", () => {
 
     addClientLog(`新建文件：已清空伪装视频和 ${hiddenCount} 个隐藏文件，回到初始状态`);
     showToast("已清空，可重新开始", "success");
+});
+
+// ---- "关于"按钮：弹模态框显示软件信息、作者、社交平台、姊妹项目 ----
+document.getElementById("about-btn").addEventListener("click", () => {
+    // 版本号取 footer 已渲染的 #version 文本（由 /api/version 填充）
+    const verEl = document.getElementById("version");
+    const ver = verEl ? verEl.textContent.trim() : "";
+    const body =
+        `<div class="about-box">` +
+        `<div class="about-logo">` +
+        `<img src="/static/影藏PolyFlix-logo.png" alt="影藏 PolyFlix">` +
+        `<div class="about-name">影藏 <span class="brand-en">PolyFlix</span></div>` +
+        `<div class="about-author">作者： hcllmsx</div>` +
+        `</div>` +
+        `<div class="about-info">` +
+        `<p>把秘密藏进一段能正常播放的 MP4 视频里。两种模式：</p>` +
+        `<p class="about-item">· 文件隐藏模式（MP4+ZIP 拼接，改后缀 .zip 解压取出）</p>` +
+        `<p class="about-item">· 双视频模式（隐藏视频原样存进 MP4，配合姊妹项目影现播放器直接播放）</p>` +
+        `<p><b>Bilibili：</b> 火车啦啦 ` +
+        `<a href="https://space.bilibili.com/255947051" target="_blank" rel="noopener">` +
+        `https://space.bilibili.com/255947051</a></p>` +
+        `<p><b>本项目仓库：</b><br>` +
+        `<a href="https://github.com/hcllmsx/PolyFlix" target="_blank" rel="noopener">` +
+        `https://github.com/hcllmsx/PolyFlix</a></p>` +
+        `<p><b>姊妹项目 · 影现播放器 PolyFlixPlayer</b><br>` +
+        `<a href="https://github.com/hcllmsx/PolyFlixPlayer" target="_blank" rel="noopener">` +
+        `https://github.com/hcllmsx/PolyFlixPlayer</a></p>` +
+        `</div>` +
+        `</div>`;
+    showModal(`影藏 PolyFlix${ver ? " " + ver : ""}`, body);
+    // 关于框专属样式：加宽、左对齐；隐藏警告图标与底部按钮；右上角加 ✕ 关闭
+    const modal = document.querySelector(".modal");
+    modal.classList.add("modal-about");
+    let closeX = modal.querySelector(".about-close");
+    if (!closeX) {
+        closeX = document.createElement("button");
+        closeX.className = "about-close";
+        closeX.textContent = "✕";
+        closeX.title = "关闭";
+        closeX.addEventListener("click", () => modalOverlay.classList.remove("visible"));
+        modal.appendChild(closeX);
+    }
 });
 
 // 页面加载完打个招呼

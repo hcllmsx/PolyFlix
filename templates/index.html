@@ -18,13 +18,20 @@
                 <div class="header-btns" id="header-btns">
                     <button class="header-btn" id="new-file-btn" title="清空第一步和第二步已选的文件，重新开始">新建文件</button>
                     <button class="header-btn" id="cache-clean-btn" title="清理本软件运行产生的缓存文件（位于 %TEMP%/PolyFlix）">清理缓存</button>
+                    <button class="header-btn" id="about-btn" title="查看软件信息、作者与姊妹项目">关于</button>
                 </div>
             </div>
         </header>
 
         <div class="main-grid">
-            <!-- 左栏：第 1、2 步 -->
+            <!-- 左栏：模式切换 + 第 1、2 步 -->
             <div class="col col-left">
+                <!-- 模式切换：文件隐藏（ZIP）/ 双视频 -->
+                <div class="mode-switch" id="mode-switch">
+                    <button type="button" class="mode-btn active" data-mode="zip" title="藏任意多个文件，改后缀 .zip 解压取出">📦 文件隐藏模式</button>
+                    <button type="button" class="mode-btn" data-mode="dual" title="藏一个视频，用影现播放器直接播放">🎬 双视频模式</button>
+                </div>
+
                 <section class="step">
                     <h2><span class="step-num">1</span>选择外壳伪装视频（仅MP4）</h2>
                     <div class="dropzone" id="dz-mp4">
@@ -37,10 +44,10 @@
                 </section>
 
                 <section class="step">
-                    <h2><span class="step-num">2</span>选择要隐藏的文件（任意格式）</h2>
+                    <h2><span class="step-num">2</span><span id="step2-title">选择要隐藏的文件（任意格式）</span></h2>
                     <div class="dropzone" id="dz-hidden">
-                        <div class="dz-icon">📁</div>
-                        <div class="dz-text">拖放文件到此处，或 <span class="link">点击选择</span>（可多选）</div>
+                        <div class="dz-icon" id="hidden-dz-icon">📁</div>
+                        <div class="dz-text" id="hidden-dz-text">拖放文件到此处，或 <span class="link">点击选择</span>（可多选）</div>
                         <div class="dz-files" id="hidden-info"></div>
                         <div class="dz-reselect-hint" id="hidden-reselect" style="display:none">
                             <span class="dz-reselect-text">继续点击或拖放可追加文件</span>
@@ -66,7 +73,14 @@
                                         <span class="layer-desc" id="mp4-name">未选择</span>
                                     </div>
                                 </div>
-                                <div class="layer layer-zip-outer">
+                                <div class="layer layer-freebox dual-only" id="layer-freebox" style="display:none">
+                                    <span class="layer-icon">🎞️</span>
+                                    <div class="layer-info">
+                                        <span class="layer-name">隐藏视频</span>
+                                        <span class="layer-desc" id="freebox-desc">原样保存，不压缩</span>
+                                    </div>
+                                </div>
+                                <div class="layer layer-zip-outer zip-only">
                                     <span class="layer-icon">📦</span>
                                     <div class="layer-info">
                                         <span class="layer-name">ZIP 外层</span>
@@ -95,7 +109,18 @@
                         <div class="panel options-panel">
                             <div class="panel-title">选项</div>
 
-                            <div class="option-group">
+                            <div class="option-group dual-only" id="dual-info-group" style="display:none">
+                                <div class="option-label">双视频模式说明</div>
+                                <div class="dual-info">
+                                    隐藏的视频原样存进 MP4，不压缩、不加密、不转码，对外看起来还是一段普通视频。<br><br>
+                                    • 普通播放器双击 → 只看到那段普通视频<br>
+                                    • 用 <b>影现播放器</b> 打开产物 → 播放隐藏的视频<br>
+                                    • 隐藏视频支持任意格式（MKV/FLV/WebM/AVI…），无需转格式<br>
+                                    • 产物体积会比原视频大一些，请注意伪装
+                                </div>
+                            </div>
+
+                            <div class="option-group zip-only">
                                 <label class="toggle">
                                     <input type="checkbox" id="outer-pw-enable">
                                     <span>外层 ZIP 加密码（AES-256）</span>
@@ -103,7 +128,7 @@
                                 <input type="text" class="pw-input" id="outer-pw" placeholder="外层密码" disabled>
                             </div>
 
-                            <div class="option-group">
+                            <div class="option-group zip-only">
                                 <div class="option-label">内层压缩包</div>
                                 <div class="radio-row">
                                     <label class="radio"><input type="radio" name="inner" value="none" checked> 无</label>
@@ -114,7 +139,7 @@
                                 <div class="subhint">选 7z 或 ZIP 后，可加内层密码、对内层分卷</div>
                             </div>
 
-                            <div class="option-group" id="split-group" style="display:none">
+                            <div class="option-group zip-only" id="split-group" style="display:none">
                                 <label class="toggle">
                                     <input type="checkbox" id="split-enable" disabled>
                                     <span>内层压缩包分卷</span>
@@ -128,7 +153,7 @@
                                 </div>
                             </div>
 
-                            <div class="option-group">
+                            <div class="option-group zip-only">
                                 <div class="option-label">压缩方式 <span class="subhint-inline" id="comp-hint">影响速度与体积</span></div>
                                 <select id="compression">
                                     <option value="store" selected>存储（最快，不压缩）</option>
@@ -176,7 +201,8 @@
     <footer class="app-footer">
             <span>© <span id="year"></span></span>
             <a href="https://github.com/hcllmsx/PolyFlix" target="_blank" rel="noopener">影藏 PolyFlix</a>
-            <span class="footer-version" id="version">v?</span>
+            <span class="footer-version" id="version" title="点击检查更新">v?</span>
+            <span class="footer-update-hint" id="update-hint"></span>
     </footer>
 
     <!-- 调试日志面板：固定底部，默认隐藏，Ctrl+F9 切换 -->

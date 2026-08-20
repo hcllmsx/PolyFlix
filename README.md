@@ -45,13 +45,26 @@ python -m uvicorn app:app --host 127.0.0.1 --port 18181
 3. 若有内层压缩包，用 7-Zip 打开（设了内层密码则输入）
 4. 得到隐藏文件
 
-## 原理
+> ⚠️ 请勿用于非法用途。
 
-| 格式 | 解析方向 | 关键结构位置 |
-|------|---------|------------|
-| MP4 | 从**头部**往后按 Box 顺序读 | 一串 Atom，从头开始 |
-| ZIP | 从**尾部**往前找结束标记 | 末尾 EOCD（`PK\x05\x06`） |
+## 开源协议
 
-把 ZIP 追加到 MP4 末尾：MP4 播放器只看头部、ZIP 解压器只看尾部，互不干扰。
+本项目基于 [GNU General Public License v3.0](LICENSE)（GPL-3.0）开源。
 
-> ⚠️ 唯一的马脚是文件体积偏大（多了 ZIP/7z 的开销）。请勿用于非法用途。
+这意味着你可以自由使用、学习、修改和再分发本项目的源代码，但任何基于本项目或其衍生部分的发行版本，也必须以 GPL-3.0 协议继续开源，并附带本协议全文。详细条款见项目根目录的 `LICENSE` 文件。
+
+## 致谢
+
+本项目站在以下成熟开源方案的肩膀上，在此致以谢意：
+
+| 项目 | 用途 | 主页 |
+|------|------|------|
+| [Python](https://www.python.org/) | 运行时与开发语言 | https://www.python.org/ |
+| [FastAPI](https://fastapi.tiangolo.com/) | Web 后端框架（构建逻辑服务） | https://fastapi.tiangolo.com/ |
+| [Uvicorn](https://www.uvicorn.org/) | ASGI 服务器 | https://www.uvicorn.org/ |
+| [pywebview](https://pywebview.flowrl.com/) | 桌面 Webview 窗口封装 | https://pywebview.flowrl.com/ |
+| [py7zr](https://github.com/miurahr/py7zr) | 7z 压缩（内层嵌套） | https://github.com/miurahr/py7zr |
+| [pyzipper](https://github.com/danver/pyzipper) | AES-256 加密 ZIP（外层压缩） | https://github.com/danver/pyzipper |
+| [FFmpeg](https://ffmpeg.org/) / libmpv | 视频解码内核 | https://ffmpeg.org/ |
+| [PyInstaller](https://pyinstaller.org/) | 打包成单文件可执行程序 | https://pyinstaller.org/ |
+

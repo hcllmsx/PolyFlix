@@ -36,3 +36,7 @@ polyflix-*.zip
 .DS_Store
 Thumbs.db
 desktop.ini
+
+1-dev_run.bat
+2-build_run.bat
+CLAUDE.md

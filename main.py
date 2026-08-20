@@ -149,7 +149,8 @@ class JsApi:
 
         try:
             with open(dest_path, "wb") as out:
-                for src_path in (info["mp4_path"], info["zip_path"]):
+                # 产物 = mp4 + 尾部部分（ZIP 模式 = outer.zip；双视频模式 = free box）
+                for src_path in (info["mp4_path"], info["tail_path"]):
                     with open(src_path, "rb") as src:
                         shutil.copyfileobj(src, out, length=CHUNK_SIZE)
             log(f"保存完成: {dest_path}")

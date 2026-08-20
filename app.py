@@ -30,6 +30,8 @@ from fastapi.staticfiles import StaticFiles
 from pyzipper import AESZipFile, WZ_AES  # AES 加密 ZIP
 import py7zr                     # 7z 支持
 
+import pflx                      # PFLX 双视频格式（free box 藏匿法，与影现播放器共用）
+
 app = FastAPI(title="影藏 PolyFlix")
 
 # 兼容 PyInstaller 打包：源码运行用脚本目录，打包后用 _MEIPASS（解压目录）
@@ -133,23 +135,23 @@ _ZIP_EOCD_SIG = b'PK\x05\x06'
 
 
 def is_polyflix_product(filepath: str) -> bool:
-    """检测一个文件是否是 PolyFlix 产物（MP4 + ZIP 拼接）。
+    """检测一个文件是否是 PolyFlix 产物（两种模式的产物都识别）。
 
-    PolyFlix 产物 = MP4 视频 + ZIP 数据拼接在尾部。
-    ZIP 文件末尾有 EOCD (End of Central Directory) 记录，签名是 PK\\x05\\x06。
-    正常 MP4 文件末尾不会出现这个签名。
+    模式一（ZIP 拼接）：MP4 + ZIP 拼接，ZIP 末尾有 EOCD 记录（PK\\x05\\06）。
+    模式二（双视频/PFLX）：MP4 + free box 藏匿，用 pflx.scan 识别。
     """
     try:
+        # 先查尾部 EOCD（只需读末尾几十 KB，成本极低）
         file_size = os.path.getsize(filepath)
-        if file_size < 22:  # ZIP EOCD 最小 22 字节
-            return False
-        # EOCD 最大 22 + 65535（注释）= 65557 字节，留点余量
-        scan_size = min(file_size, 65557 + 1024)
-        with open(filepath, 'rb') as f:
-            f.seek(-scan_size, 2)  # 从末尾往回读
-            tail = f.read()
-        # 从后往前找 EOCD 签名（取最后一个，确保是文件最末尾的 ZIP）
-        return tail.rfind(_ZIP_EOCD_SIG) != -1
+        if file_size >= 22:
+            scan_size = min(file_size, 65557 + 1024)
+            with open(filepath, 'rb') as f:
+                f.seek(-scan_size, 2)
+                tail = f.read()
+            if tail.rfind(_ZIP_EOCD_SIG) != -1:
+                return True
+        # 再查 PFLX free box（沿 box 链扫描，只读 box 头，成本也很低）
+        return pflx.is_pflx_product(filepath)
     except Exception:
         return False
 
@@ -397,6 +399,119 @@ def save_upload_to_file(upload: UploadFile, dest: str):
         upload.file.close()
 
 
+def _register_build(mp4_path: str, tail_path: str, download_name: str,
+                    total_size: int, tmpdir: str, mode: str = "zip") -> str:
+    """登记一次构建结果，返回 download_id。
+
+    tail_path：拼接在 MP4 后面的部分（ZIP 模式 = outer.zip；双视频模式 = free box 文件）。
+    产物 = mp4_path 字节流 + tail_path 字节流。mode：zip | dual。
+    """
+    download_id = uuid.uuid4().hex[:12]
+    if len(_builds) >= _MAX_BUILDS:
+        oldest_id = next(iter(_builds))
+        old = _builds.pop(oldest_id)
+        shutil.rmtree(old["tmpdir"], True)
+    _builds[download_id] = {
+        "mp4_path": mp4_path,
+        "tail_path": tail_path,
+        "filename": download_name,
+        "size": total_size,
+        "tmpdir": tmpdir,
+        "mode": mode,
+    }
+    return download_id
+
+
+def _copy_file_stream(src: str, dest: str, label: str, use_hardlink: bool = True):
+    """把 src 弄到 dest：优先硬链接，失败则流式复制。返回 dest。"""
+    if use_hardlink:
+        try:
+            os.link(src, dest)
+            log(f"{label} 硬链接完成: {os.path.getsize(dest)} 字节")
+            return dest
+        except OSError:
+            pass
+    log(f"{label} 复制中… ({fmt_bytes(os.path.getsize(src))})")
+    with open(src, "rb") as f, open(dest, "wb") as out:
+        shutil.copyfileobj(f, out, length=CHUNK_SIZE)
+    log(f"{label} 复制完成: {os.path.getsize(dest)} 字节")
+    return dest
+
+
+def _build_dual(mp4_path: str, hidden_paths: list, mp4_display_name: str, tmpdir: str) -> dict:
+    """双视频模式（PFLX）：a.mp4 原样 + free box（载荷 = b 视频原始字节）。
+
+    b 可以是任意格式（mkv/flv/webm/avi…），不转码、不压缩、不加密。
+    普通播放器播 a（free box 被忽略），影现播放器播 b。
+    必须恰好一个隐藏文件。
+    """
+    if len(hidden_paths) != 1:
+        raise ValueError(
+            f"双视频模式只能隐藏 1 个视频文件（当前 {len(hidden_paths)} 个）。"
+            f"需要隐藏多个文件请使用 ZIP 模式。"
+        )
+    hidden_path = hidden_paths[0]
+    hidden_size = os.path.getsize(hidden_path)
+    if hidden_size == 0:
+        raise ValueError("隐藏视频文件为空")
+    mp4_size = os.path.getsize(mp4_path)
+
+    log(f"模式: 双视频")
+    log(f"伪装视频: {fmt_bytes(mp4_size)}")
+    log(f"隐藏视频: {os.path.basename(hidden_path)} ({fmt_bytes(hidden_size)})")
+
+    # 磁盘空间检查（free box 需落盘，约等于载荷大小；预留余量）
+    disk = shutil.disk_usage(tmpdir)
+    need = mp4_size + hidden_size + 64 * 1024 * 1024
+    if disk.free < need:
+        log(f"⚠️ 磁盘空间不足: 剩余 {fmt_bytes(disk.free)}, 约需 {fmt_bytes(need)}", level="warning")
+    else:
+        log(f"磁盘空间: 剩余 {fmt_bytes(disk.free)}（约需 {fmt_bytes(need)}）")
+
+    # 构建 free box（载荷 = b 的原始字节，流式写入，边写边算 CRC32）
+    freebox_path = os.path.join(tmpdir, "payload.freebox")
+
+    # 外壳 mp4 必须放进构建自己的临时目录（硬链接优先）：
+    # /api/build 结束时会删除上传临时目录，若直接引用上传路径，下载时文件已不存在
+    new_mp4_path = os.path.join(tmpdir, "cover.mp4")
+    _copy_file_stream(mp4_path, new_mp4_path, "MP4")
+    mp4_path = new_mp4_path
+    mp4_size = os.path.getsize(mp4_path)
+
+    log(f"封装隐藏视频…")
+    _last_pct = [-1]
+
+    def _on_progress(done: int, total: int):
+        if total <= 256 * 1024 * 1024:
+            return  # 小文件不打进度
+        pct = done * 100 // total
+        if pct != _last_pct[0] and pct % 10 == 0:
+            _last_pct[0] = pct
+            log(f"    写入隐藏视频: {pct}% ({fmt_bytes(done)} / {fmt_bytes(total)})")
+
+    stats = pflx.write_free_box(hidden_path, freebox_path,
+                               name=os.path.basename(hidden_path),
+                               progress=_on_progress)
+    log(f"隐藏视频封装完成: {stats['box_size']} 字节")
+
+    total_size = mp4_size + stats["box_size"]
+    log(f"拼接: MP4({mp4_size}) + freebox({stats['box_size']}) = {total_size} 字节")
+
+    # 派生下载文件名（与 ZIP 模式一致）
+    mp4_name = os.path.basename(mp4_display_name)
+    base = mp4_name[:-4] if mp4_name.lower().endswith(".mp4") else mp4_name
+    download_name = f"{base}-polyflix.mp4"
+    log(f"下载文件名: {download_name}")
+
+    download_id = _register_build(mp4_path, freebox_path, download_name, total_size, tmpdir, mode="dual")
+    log(f"下载 ID: {download_id}")
+    log(f"========== 构建成功 ==========")
+    # tmpdir 现由 _builds 持有，从活动集合移除（与 ZIP 模式成功路径一致）
+    with _cache_lock:
+        _active_tmpdirs.discard(tmpdir)
+    return {"download_id": download_id, "filename": download_name, "size": total_size, "mode": "dual"}
+
+
 # --------------------------------------------------------------------------- #
 # 核心构建逻辑：从本地文件路径构建伪装文件（HTTP 上传和 exe 本地构建共用）
 # --------------------------------------------------------------------------- #
@@ -420,15 +535,13 @@ def do_build(mp4_path: str, hidden_paths: list, cfg: dict, mp4_display_name: str
             log(f"  [{i}] {os.path.basename(hp)}")
         log(f"config: {cfg}")
 
+        # 0) 模式分派：dual = 双视频（PFLX free box），zip = 原有 ZIP 拼接
+        if cfg.get("mode", "zip") == "dual":
+            return _build_dual(mp4_path, hidden_paths, mp4_display_name, tmpdir)
+
         # 1) 把 MP4 放进临时目录（硬链接优先，省时省空间；失败则复制）
         new_mp4_path = os.path.join(tmpdir, "cover.mp4")
-        try:
-            os.link(mp4_path, new_mp4_path)
-            log(f"MP4 硬链接完成: {os.path.getsize(new_mp4_path)} 字节")
-        except OSError:
-            log(f"MP4 复制中… ({fmt_bytes(os.path.getsize(mp4_path))})")
-            shutil.copy2(mp4_path, new_mp4_path)
-            log(f"MP4 复制完成: {os.path.getsize(new_mp4_path)} 字节")
+        _copy_file_stream(mp4_path, new_mp4_path, "MP4")
         mp4_path = new_mp4_path
         mp4_size = os.path.getsize(mp4_path)
 
@@ -489,18 +602,7 @@ def do_build(mp4_path: str, hidden_paths: list, cfg: dict, mp4_display_name: str
         log(f"下载文件名: {download_name}")
 
         # 5) 存储构建结果
-        download_id = uuid.uuid4().hex[:12]
-        if len(_builds) >= _MAX_BUILDS:
-            oldest_id = next(iter(_builds))
-            old = _builds.pop(oldest_id)
-            shutil.rmtree(old["tmpdir"], True)
-        _builds[download_id] = {
-            "mp4_path": mp4_path,
-            "zip_path": outer_path,
-            "filename": download_name,
-            "size": total_size,
-            "tmpdir": tmpdir,
-        }
+        download_id = _register_build(mp4_path, outer_path, download_name, total_size, tmpdir, mode="zip")
 
         log(f"下载 ID: {download_id}")
         log(f"========== 构建成功 ==========")
@@ -553,6 +655,7 @@ def build(
             "downloadUrl": f"/api/download/{result['download_id']}",
             "filename": result["filename"],
             "size": result["size"],
+            "mode": result.get("mode", "zip"),
         })
     except Exception as e:
         tb = traceback.format_exc()
@@ -578,18 +681,13 @@ def download(download_id: str):
     info = _builds[download_id]
 
     def generate():
-        with open(info["mp4_path"], "rb") as f:
-            while True:
-                chunk = f.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                yield chunk
-        with open(info["zip_path"], "rb") as f:
-            while True:
-                chunk = f.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                yield chunk
+        for part in (info["mp4_path"], info["tail_path"]):
+            with open(part, "rb") as f:
+                while True:
+                    chunk = f.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    yield chunk
 
     return StreamingResponse(
         generate(),
