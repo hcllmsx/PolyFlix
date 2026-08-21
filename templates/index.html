@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>影藏 PolyFlix</title>
     <link rel="icon" href="/static/polyflix-favicon.ico">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=20260821">
 </head>
 <body>
     <!-- 主体：两栏布局（居中），标题在主体内顶部 -->
@@ -36,7 +36,7 @@
                     <h2><span class="step-num">1</span>选择外壳伪装视频（仅MP4）</h2>
                     <div class="dropzone" id="dz-mp4">
                         <div class="dz-icon">🎬</div>
-                        <div class="dz-text">拖放 MP4 文件到此处，或 <span class="link">点击选择</span></div>
+                        <div class="dz-text">拖放 MP4 文件到此处<br><span class="dz-sub">仅 MP4 格式</span></div>
                         <div class="dz-file" id="mp4-info"></div>
                         <div class="dz-reselect-hint" id="mp4-reselect" style="display:none">点击可重新选择其他视频</div>
                         <input type="file" id="input-mp4" accept="video/mp4" hidden>
@@ -47,7 +47,7 @@
                     <h2><span class="step-num">2</span><span id="step2-title">选择要隐藏的文件（任意格式）</span></h2>
                     <div class="dropzone" id="dz-hidden">
                         <div class="dz-icon" id="hidden-dz-icon">📁</div>
-                        <div class="dz-text" id="hidden-dz-text">拖放文件到此处，或 <span class="link">点击选择</span>（可多选）</div>
+                        <div class="dz-text" id="hidden-dz-text">拖放文件到此处<br><span class="dz-sub">可多选</span></div>
                         <div class="dz-files" id="hidden-info"></div>
                         <div class="dz-reselect-hint" id="hidden-reselect" style="display:none">
                             <span class="dz-reselect-text">继续点击或拖放可追加文件</span>
@@ -254,6 +254,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260821"></script>
 </body>
 </html>

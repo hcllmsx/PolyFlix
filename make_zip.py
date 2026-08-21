@@ -35,7 +35,9 @@ TOP_DIR_IN_ZIP = "PolyFlix"
 # 元素为 (源文件绝对/相对路径, 在 zip 内相对于 TOP_DIR_IN_ZIP 的子路径)。
 # 源文件不存在时只打印告警，不会中断打包（避免没有样片时无法出包）。
 BONUS_FILES = [
-    (os.path.join("_temp", "PolyFlix样片.mp4"), "PolyFlix样片.mp4"),
+    (os.path.join("_temp", "PolyFlix样片-seg1.mp4"), "PolyFlix样片-seg1.mp4"),
+    (os.path.join("_temp", "PolyFlix样片-seg2.mp4"), "PolyFlix样片-seg2.mp4"),
+    (os.path.join("_temp", "PolyFlix样片-seg3.mp4"), "PolyFlix样片-seg3.mp4"),
 ]
 
 

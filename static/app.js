@@ -330,8 +330,8 @@ function setMode(mode) {
         mode === "dual" ? "选择隐藏的视频（任意视频格式，不转码）" : "选择要隐藏的文件（任意格式）";
     document.getElementById("hidden-dz-icon").textContent = mode === "dual" ? "🎞️" : "📁";
     document.getElementById("hidden-dz-text").innerHTML = mode === "dual"
-        ? '拖放要隐藏的视频到此处，或 <span class="link">点击选择</span>（单个文件）'
-        : '拖放文件到此处，或 <span class="link">点击选择</span>（可多选）';
+        ? '拖放要隐藏的视频到此处<br><span class="dz-sub">单个文件，支持任意视频格式</span>'
+        : '拖放文件到此处<br><span class="dz-sub">可多选</span>';
     document.getElementById("input-hidden").accept = mode === "dual"
         ? "video/*," + VIDEO_EXTS.map(e => "." + e).join(",")
         : "";
