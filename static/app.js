@@ -29,6 +29,9 @@ function compareVersions(a, b) {
 // 渲染更新提示（检测完成后调用）
 // state: "new" | "latest" | "checking" | "error" | ""  newVer: 远程版本号
 function renderUpdateHint(state, newVer) {
+    if (versionEl) {
+        versionEl.classList.toggle("is-latest", state === "latest");
+    }
     if (!updateHintEl) return;
     updateHintEl.className = "footer-update-hint";
     switch (state) {
@@ -39,8 +42,7 @@ function renderUpdateHint(state, newVer) {
                 `有新版本 v${newVer}，点击下载</a>`;
             break;
         case "latest":
-            updateHintEl.classList.add("hint-latest");
-            updateHintEl.textContent = "已是最新";
+            updateHintEl.textContent = "";
             break;
         case "checking":
             updateHintEl.classList.add("hint-checking");

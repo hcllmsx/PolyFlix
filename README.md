@@ -4,7 +4,9 @@
 
 生成的文件既是合法的 **MP4**（双击就能播），又是合法的 **ZIP**（改后缀为 `.zip` 就能解压）——这叫"多态文件 (polyglot)"。
 
-配合**影现播放器** [PolyFlixPlayer](https://github.com/hcllmsx/PolyFlixPlayer) 这个姊妹项目一起使用体验会更好哟。
+配合影现播放器姊妹项目使用体验更佳：
+- 桌面端播放器：[PolyFlixPlayer](https://github.com/hcllmsx/PolyFlixPlayer)（基于 PySide6 + libmpv）
+- 移动端播放器：[PolyFlixPlayer-Mobile](https://github.com/hcllmsx/PolyFlixPlayer-Mobile)（基于 Flutter + media_kit）
 
 ## 嵌套结构
 

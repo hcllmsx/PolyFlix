@@ -415,8 +415,10 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
     transition: opacity 0.15s;
 }
 .app-footer a:hover { opacity: 0.8; text-decoration: underline; }
-.footer-version { color: var(--muted); font-size: 0.8rem; opacity: 0.6; cursor: pointer; }
+.footer-version { color: var(--muted); font-size: 0.8rem; opacity: 0.6; cursor: pointer; transition: color 0.2s, opacity 0.2s; }
 .footer-version:hover { opacity: 1; text-decoration: underline; }
+.footer-version.is-latest { color: #34d399; opacity: 0.9; }
+.footer-version.is-latest:hover { opacity: 1; }
 
 /* 更新提示（页脚版本号后） */
 .footer-update-hint { font-size: 0.8rem; }
