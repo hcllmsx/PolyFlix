@@ -1373,6 +1373,9 @@ document.getElementById("about-btn").addEventListener("click", () => {
         `<p><b>姊妹项目 · 影现播放器 PolyFlixPlayer</b><br>` +
         `<a href="https://github.com/hcllmsx/PolyFlixPlayer" target="_blank" rel="noopener">` +
         `https://github.com/hcllmsx/PolyFlixPlayer</a></p>` +
+        `<p><b>建议反馈：</b>` +
+        `<a href="https://docs.qq.com/form/page/DRHJ3bmd6Q3RqaENT" target="_blank" rel="noopener">` +
+        `软件意见建议反馈收集表</a></p>` +
         `</div>` +
         `</div>`;
     showModal(`影藏 PolyFlix${ver ? " " + ver : ""}`, body);

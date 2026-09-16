@@ -37,6 +37,7 @@ polyflix-*.zip
 Thumbs.db
 desktop.ini
 
-1-dev_run.bat
-2-build_run.bat
+# 本地构建脚本（仅在本机使用，不纳入版本管理）
+1-run_menu.bat
+build_menu.ps1
 CLAUDE.md

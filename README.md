@@ -19,8 +19,10 @@ MP4 外壳（伪装层，正常播放）
 ## 快速开始（Windows）
 
 1. 安装 [Python 3.8+](https://www.python.org/downloads/)（安装时勾选 Add to PATH）
-2. 双击 `dev_run.bat`
+2. 双击 `1-run_menu.bat`，选择 `[1] 本地运行`
 3. 浏览器自动打开 `http://127.0.0.1:18181`
+
+> 打包成便携版 exe：同样双击 `1-run_menu.bat`，选择 `[2] 打包为 exe`，产物在 `dist\PolyFlix\`，并附带 zip 分发包。
 
 ## 手动启动
 
@@ -49,6 +51,10 @@ python -m uvicorn app:app --host 127.0.0.1 --port 18181
 4. 得到隐藏文件
 
 > ⚠️ 请勿用于非法用途。
+
+## 反馈与建议
+
+遇到问题或有新想法？欢迎通过问卷告诉我们：[软件意见建议反馈收集表](https://docs.qq.com/form/page/DRHJ3bmd6Q3RqaENT)。
 
 ## 开源协议
 
