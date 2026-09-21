@@ -15,6 +15,7 @@ import time
 import shutil
 import tempfile
 import zipfile
+import subprocess
 import traceback
 import logging
 import threading
@@ -31,6 +32,7 @@ from pyzipper import AESZipFile, WZ_AES  # AES 加密 ZIP
 import py7zr                     # 7z 支持
 
 import pflx                      # PFLX 双视频格式（free box 藏匿法，与影现播放器共用）
+import brand                     # 统一的署名 / 制作信息（zip 注释、MP4 备注）
 
 app = FastAPI(title="影藏 PolyFlix")
 
@@ -121,6 +123,18 @@ def zip_comp_kwargs(method: str) -> dict:
     return kw
 
 
+def _set_zip_comment(z) -> None:
+    """把制作信息写进 zip 注释（同时用于外层 ZIP 和内层 ZIP）。
+
+    zipfile.ZipFile 与 pyzipper.AESZipFile 都支持 comment 属性（写在 EOCD 尾部，
+    不加密、不参与校验）。写入失败只告警，不中断构建。
+    """
+    try:
+        z.comment = brand.zip_comment().encode("utf-8")
+    except Exception as e:
+        log(f"  ZIP 制作信息写入失败（不致命）: {e}", level="warning")
+
+
 def fmt_bytes(n: int) -> str:
     """把字节数格式化成人类可读。"""
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -134,23 +148,44 @@ def fmt_bytes(n: int) -> str:
 _ZIP_EOCD_SIG = b'PK\x05\x06'
 
 
+def _zip_is_standalone(filepath: str, file_size: int) -> bool | None:
+    """文件尾部的 ZIP 结构是不是"从文件头开始"的独立 ZIP。
+
+    True  → 独立 ZIP（普通 .zip 文件）
+    False → ZIP 前面还粘着别的数据 → PolyFlix 产物（MP4 + ZIP 拼接）
+    None  → 没有 EOCD / 结构异常，判断不了
+    """
+    if file_size < 22:
+        return None
+    scan_size = min(file_size, 65557 + 1024)
+    with open(filepath, "rb") as f:
+        f.seek(-scan_size, 2)
+        tail = f.read()
+    idx = tail.rfind(_ZIP_EOCD_SIG)
+    if idx < 0 or idx + 22 > len(tail):
+        return None
+    cd_size = int.from_bytes(tail[idx + 12: idx + 16], "little")
+    cd_offset = int.from_bytes(tail[idx + 16: idx + 20], "little")
+    # EOCD 绝对偏移 = ZIP 起点 + cd_offset + cd_size，反推出 ZIP 起点（普通 zip 为 0）
+    zip_start = (file_size - scan_size) + idx - cd_size - cd_offset
+    return zip_start == 0
+
+
 def is_polyflix_product(filepath: str) -> bool:
     """检测一个文件是否是 PolyFlix 产物（两种模式的产物都识别）。
 
-    模式一（ZIP 拼接）：MP4 + ZIP 拼接，ZIP 末尾有 EOCD 记录（PK\\x05\\06）。
-    模式二（双视频/PFLX）：MP4 + free box 藏匿，用 pflx.scan 识别。
+    模式一（ZIP 拼接）：尾部有 EOCD，且它描述的 ZIP 起点不在文件开头
+    （前面粘着 MP4）—— 这正是“拼接”的特征，普通 .zip 不会误判。
+    模式二（双视频/PFLX）：MP4 + free box 藏匿，用 pflx.is_pflx_product 识别。
     """
     try:
-        # 先查尾部 EOCD（只需读末尾几十 KB，成本极低）
         file_size = os.path.getsize(filepath)
-        if file_size >= 22:
-            scan_size = min(file_size, 65557 + 1024)
-            with open(filepath, 'rb') as f:
-                f.seek(-scan_size, 2)
-                tail = f.read()
-            if tail.rfind(_ZIP_EOCD_SIG) != -1:
-                return True
-        # 再查 PFLX free box（沿 box 链扫描，只读 box 头，成本也很低）
+        standalone = _zip_is_standalone(filepath, file_size)
+        if standalone is True:
+            return False        # 独立 ZIP（普通压缩包），不是产物
+        if standalone is False:
+            return True         # ZIP 前面粘着 MP4 → 拼接产物
+        # 没有 ZIP 结构，再查 PFLX free box（沿 box 链扫描，只读 box 头，成本也很低）
         return pflx.is_pflx_product(filepath)
     except Exception:
         return False
@@ -316,12 +351,14 @@ def build_inner_archive(entries, cfg: dict, out_path: str):
                 for i, (arcname, fpath) in enumerate(entries):
                     log(f"  内层 ZIP [{i+1}/{len(entries)}]: {arcname} ({fmt_bytes(os.path.getsize(fpath))})")
                     z.write(fpath, arcname)
+                _set_zip_comment(z)
         else:
             with zipfile.ZipFile(out_path, "w", allowZip64=True, **kw) as z:
                 for i, (arcname, fpath) in enumerate(entries):
                     log(f"  内层 ZIP [{i+1}/{len(entries)}]: {arcname} ({fmt_bytes(os.path.getsize(fpath))})")
                     _zip_write_stream(z, arcname, fpath)
-        log(f"  内层 ZIP 完成: {os.path.getsize(out_path)} 字节")
+                _set_zip_comment(z)
+        log(f"  内层 ZIP 完成（已写入制作信息注释）: {os.path.getsize(out_path)} 字节")
     else:
         raise ValueError(f"未知的内层格式: {fmt}")
 
@@ -375,18 +412,21 @@ def build_outer_zip(entries, password: str, out_path: str, method: str = "normal
     kw = zip_comp_kwargs(method)
     total = len(entries)
     log(f"外层 ZIP: 条目数={total}, 带密码={bool(password)}, 方式={method}")
+    # 注释里写制作信息（产物被当作 zip 打开时，7-Zip → 文件 → 注释 可见）
     if password:
         with AESZipFile(out_path, "w", encryption=WZ_AES, allowZip64=True, **kw) as z:
             z.setpassword(password.encode())
             for i, (arcname, fpath) in enumerate(entries):
                 log(f"  外层 ZIP [{i+1}/{total}]: {arcname} ({fmt_bytes(os.path.getsize(fpath))})")
                 z.write(fpath, arcname)
+            _set_zip_comment(z)
     else:
         with zipfile.ZipFile(out_path, "w", allowZip64=True, **kw) as z:
             for i, (arcname, fpath) in enumerate(entries):
                 log(f"  外层 ZIP [{i+1}/{total}]: {arcname} ({fmt_bytes(os.path.getsize(fpath))})")
                 _zip_write_stream(z, arcname, fpath)
-    log(f"  外层 ZIP 完成: {os.path.getsize(out_path)} 字节")
+            _set_zip_comment(z)
+    log(f"  外层 ZIP 完成（已写入制作信息注释）: {os.path.getsize(out_path)} 字节")
 
 
 def save_upload_to_file(upload: UploadFile, dest: str):
@@ -438,10 +478,125 @@ def _copy_file_stream(src: str, dest: str, label: str, use_hardlink: bool = True
     return dest
 
 
+def _find_ffmpeg() -> str | None:
+    """定位 ffmpeg（只作兜底）：随包的 tools/ffmpeg/ffmpeg.exe，或系统 PATH。"""
+    for rel in (os.path.join("tools", "ffmpeg", "ffmpeg.exe"),
+                os.path.join("tools", "ffmpeg", "ffmpeg")):
+        p = os.path.join(BASE_DIR, rel)
+        if os.path.isfile(p):
+            return p
+    return shutil.which("ffmpeg")
+
+
+def _write_comment_ffmpeg(src_path: str, dst_path: str, comment: str) -> bool:
+    """兜底方案：ffmpeg 重封装写 ©cmt（`-c copy`，不重新编码）。
+
+    只有 mutagen 认不出这个文件时才会走到这里；找不到 ffmpeg 直接返回 False。
+    """
+    exe = _find_ffmpeg()
+    if not exe:
+        return False
+
+    cmd = [
+        exe, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", src_path,
+        "-map", "0",            # 保留所有轨道（视频/音频/字幕/封面），不丢流
+        "-c", "copy",           # 不重新编码
+        "-map_metadata", "0",   # 沿用原有元数据，只覆盖 comment
+        "-metadata", f"comment={comment}",
+        "-f", "mp4", dst_path,
+    ]
+    kwargs = {"stdin": subprocess.DEVNULL, "capture_output": True,
+              "encoding": "utf-8", "errors": "replace"}
+    if sys.platform == "win32":
+        # exe 是无控制台窗口的，子进程必须显式隐藏，否则会闪黑窗
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs["startupinfo"] = startupinfo
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    try:
+        log("写入外壳视频备注（ffmpeg 兜底重封装，不重新编码）…")
+        proc = subprocess.run(cmd, **kwargs)
+    except Exception as e:
+        log(f"调用 ffmpeg 失败，跳过写入视频备注: {e}", level="warning")
+        return False
+
+    if proc.returncode != 0 or not os.path.isfile(dst_path) or os.path.getsize(dst_path) == 0:
+        err = (proc.stderr or "").strip().splitlines()
+        tail = err[-1] if err else "无输出"
+        log(f"ffmpeg 写入备注失败（跳过，不影响构建）: {tail}", level="warning")
+        try:
+            if os.path.exists(dst_path):
+                os.remove(dst_path)
+        except OSError:
+            pass
+        return False
+
+    log(f"  外壳视频备注已写入: {os.path.getsize(dst_path)} 字节")
+    return True
+
+
+def write_mp4_comment(src_path: str, dst_path: str, comment: str) -> bool:
+    """给外壳 MP4 写入「备注」(©cmt) —— 资源管理器「详细信息 → 备注」可见。
+
+    正常路径：mutagen（纯 Python，200KB，就地改 moov 里的元数据，1GB 文件约 0.07s）。
+    它会**先把 src 复制成 dst 再改**，绝不改动用户选的原文件
+    （mutagen 是就地修改，所以这里必须真复制，不能用硬链接）。
+    mutagen 认不出这个文件时退回 ffmpeg 重封装。
+    都失败就跳过 —— 只是少了那条制作信息，隐藏内容与播放都不受影响。
+    """
+    try:
+        from mutagen.mp4 import MP4
+    except ImportError:
+        log("未安装 mutagen，改用 ffmpeg 写入视频备注", level="warning")
+        return _write_comment_ffmpeg(src_path, dst_path, comment)
+
+    try:
+        _copy_file_stream(src_path, dst_path, "外壳 MP4", use_hardlink=False)
+        m = MP4(dst_path)
+        m["\xa9cmt"] = [comment]
+        m.save()
+        log(f"  外壳视频备注已写入: {os.path.getsize(dst_path)} 字节")
+        return True
+    except Exception as e:
+        log(f"mutagen 写入备注失败，改用 ffmpeg 兜底: {e}", level="warning")
+        try:
+            if os.path.exists(dst_path):
+                os.remove(dst_path)
+        except OSError:
+            pass
+        return _write_comment_ffmpeg(src_path, dst_path, comment)
+
+
+def _prepare_cover_mp4(mp4_path: str, tmpdir: str) -> tuple[str, int]:
+    """把外壳 MP4 落进构建临时目录，并写入制作信息「备注」。返回 (路径, 大小)。
+
+    外壳 mp4 必须放进构建自己的临时目录：/api/build 结束时会删除上传临时目录，
+    若直接引用上传路径，下载时文件已不存在。
+    写备注失败时返回原样副本，构建照常继续。
+    """
+    base = os.path.join(tmpdir, "cover.mp4")
+    _copy_file_stream(mp4_path, base, "MP4")
+    if os.path.getsize(base) == 0:
+        return base, 0
+
+    commented = os.path.join(tmpdir, "cover_comment.mp4")
+    if write_mp4_comment(base, commented, brand.mp4_comment()):
+        try:
+            os.remove(base)     # 没备注的副本已无用，省一份磁盘
+        except OSError:
+            pass
+        return commented, os.path.getsize(commented)
+    return base, os.path.getsize(base)
+
+
 def _build_dual(mp4_path: str, hidden_paths: list, mp4_display_name: str, tmpdir: str) -> dict:
-    """双视频模式（PFLX）：a.mp4 原样 + free box（载荷 = b 视频原始字节）。
+    """双视频模式（PFLX）：外壳 MP4（写入制作信息备注）+ free box（载荷 = b 视频原始字节）。
 
     b 可以是任意格式（mkv/flv/webm/avi…），不转码、不压缩、不加密。
+    外壳视频 a 只在有 ffmpeg 时做一次「重封装」（写 ©cmt 备注，不重新编码），
+    找不到 ffmpeg 则原样使用。
     普通播放器播 a（free box 被忽略），影现播放器播 b。
     必须恰好一个隐藏文件。
     """
@@ -460,9 +615,10 @@ def _build_dual(mp4_path: str, hidden_paths: list, mp4_display_name: str, tmpdir
     log(f"伪装视频: {fmt_bytes(mp4_size)}")
     log(f"隐藏视频: {os.path.basename(hidden_path)} ({fmt_bytes(hidden_size)})")
 
-    # 磁盘空间检查（free box 需落盘，约等于载荷大小；预留余量）
+    # 磁盘空间检查（free box 需落盘，约等于载荷大小；
+    # 外壳 MP4 还要多落一份"写入备注元数据"的重封装副本，故按 2 份算；预留余量）
     disk = shutil.disk_usage(tmpdir)
-    need = mp4_size + hidden_size + 64 * 1024 * 1024
+    need = mp4_size * 2 + hidden_size + 64 * 1024 * 1024
     if disk.free < need:
         log(f"⚠️ 磁盘空间不足: 剩余 {fmt_bytes(disk.free)}, 约需 {fmt_bytes(need)}", level="warning")
     else:
@@ -471,12 +627,9 @@ def _build_dual(mp4_path: str, hidden_paths: list, mp4_display_name: str, tmpdir
     # 构建 free box（载荷 = b 的原始字节，流式写入，边写边算 CRC32）
     freebox_path = os.path.join(tmpdir, "payload.freebox")
 
-    # 外壳 mp4 必须放进构建自己的临时目录（硬链接优先）：
-    # /api/build 结束时会删除上传临时目录，若直接引用上传路径，下载时文件已不存在
-    new_mp4_path = os.path.join(tmpdir, "cover.mp4")
-    _copy_file_stream(mp4_path, new_mp4_path, "MP4")
-    mp4_path = new_mp4_path
-    mp4_size = os.path.getsize(mp4_path)
+    # 落进临时目录 + 写入「备注」制作信息（资源管理器「详细信息 → 备注」可见）。
+    # 只改元数据不重编码，free box 之后才拼，隐藏内容与播放都不受影响。
+    mp4_path, mp4_size = _prepare_cover_mp4(mp4_path, tmpdir)
 
     log(f"封装隐藏视频…")
     _last_pct = [-1]
@@ -539,11 +692,8 @@ def do_build(mp4_path: str, hidden_paths: list, cfg: dict, mp4_display_name: str
         if cfg.get("mode", "zip") == "dual":
             return _build_dual(mp4_path, hidden_paths, mp4_display_name, tmpdir)
 
-        # 1) 把 MP4 放进临时目录（硬链接优先，省时省空间；失败则复制）
-        new_mp4_path = os.path.join(tmpdir, "cover.mp4")
-        _copy_file_stream(mp4_path, new_mp4_path, "MP4")
-        mp4_path = new_mp4_path
-        mp4_size = os.path.getsize(mp4_path)
+        # 1) 把 MP4 放进临时目录（硬链接优先）+ 写入外壳「备注」制作信息
+        mp4_path, mp4_size = _prepare_cover_mp4(mp4_path, tmpdir)
 
         if mp4_size == 0:
             raise ValueError("MP4 文件为空")
@@ -563,6 +713,7 @@ def do_build(mp4_path: str, hidden_paths: list, cfg: dict, mp4_display_name: str
         total_source = mp4_size + sum(os.path.getsize(hp) for _, hp in hidden_entries)
         disk = shutil.disk_usage(tmpdir)
         need = total_source * 2 if method != "store" else int(total_source * 1.1) + 1024 * 1024
+        need += mp4_size  # 写外壳备注时会多出一份 MP4 副本
         if disk.free < need:
             log(f"⚠️ 磁盘空间不足: 剩余 {fmt_bytes(disk.free)}, 约需 {fmt_bytes(need)}", level="warning")
         else:

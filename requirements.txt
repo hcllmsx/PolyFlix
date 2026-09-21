@@ -3,5 +3,6 @@ uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 py7zr>=0.20.0
 pyzipper>=0.3.6
+mutagen>=1.47.0       # 纯 Python 写 MP4「备注」(©cmt)，替代几百 MB 的 ffmpeg
 pywebview>=5.0
 pyinstaller>=6.0

@@ -91,7 +91,14 @@ class JsApi:
             if not p:
                 continue
             try:
-                files.append({"path": p, "name": os.path.basename(p), "size": os.path.getsize(p)})
+                item = {"path": p, "name": os.path.basename(p), "size": os.path.getsize(p)}
+                # 标记影藏产物：前端据此在双视频模式下拦截（文件隐藏模式下允许套娃）
+                try:
+                    if is_polyflix_product(p):
+                        item["isProduct"] = True
+                except Exception:
+                    pass
+                files.append(item)
             except Exception as e:
                 log(f"跳过无法读取的路径 {p!r}: {e}", level="warning")
         return files if files else None

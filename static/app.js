@@ -58,18 +58,36 @@ function renderUpdateHint(state, newVer) {
 }
 
 // 检查更新：fetch 仓库根目录 VERSION 文件
-// raw URL：https://raw.githubusercontent.com/<owner>/<repo>/main/VERSION
-const UPDATE_URL = "https://raw.githubusercontent.com/hcllmsx/PolyFlix/main/VERSION";
+// 源顺序：gh-proxy 加速先上（国内直连 GitHub raw 常超时），失败再退回 GitHub 官方。
+// gh-proxy 用法就是在完整链接前拼代理域名，见 https://gh-proxy.com/docs/github-accelerator
+const VERSION_FILE = "https://raw.githubusercontent.com/hcllmsx/PolyFlix/main/VERSION";
+const UPDATE_SOURCES = [
+    { name: "gh-proxy", url: `https://gh-proxy.com/${VERSION_FILE}` },
+    { name: "GitHub 官方", url: VERSION_FILE },
+];
 
 async function checkForUpdate(manual = false) {
     if (!currentVersion) return;
     renderUpdateHint("checking");
+    let remote = "";
+    let lastError = null;
+    for (const src of UPDATE_SOURCES) {
+        try {
+            // 加时间戳防 CDN / gh-proxy 边缘缓存
+            const r = await fetch(`${src.url}?t=${Date.now()}`, { cache: "no-store" });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const text = (await r.text()).trim();
+            if (!text) throw new Error("空响应");
+            remote = text;
+            lastError = null;
+            break;
+        } catch (e) {
+            lastError = e;
+            addClientLog(`更新源 ${src.name} 获取失败：${e.message || e}`);
+        }
+    }
     try {
-        // 加时间戳防 CDN 缓存
-        const r = await fetch(`${UPDATE_URL}?t=${Date.now()}`, { cache: "no-store" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const remote = (await r.text()).trim();
-        if (!remote) throw new Error("空响应");
+        if (!remote) throw lastError || new Error("所有更新源均不可用");
         if (compareVersions(remote, currentVersion) > 0) {
             renderUpdateHint("new", remote);
             if (manual) showToast(`发现新版本 v${remote}，已显示在页脚`, "success");
@@ -183,6 +201,19 @@ function showPolyflixWarning(filename) {
     showModal("不能使用 PolyFlix 产物作为伪装视频", body);
 }
 
+// 双视频模式：产物当隐藏视频没有意义（播放器只会播它的外壳，内层取不出来）
+function showDualHiddenWarning(filename) {
+    const body =
+        `<span class="modal-file">${escapeHtml(filename)}</span> 已经是 PolyFlix 产物（视频 + 隐藏数据），再藏进双视频模式的外壳里没有意义。` +
+        `<div class="modal-hint">` +
+        `<b>原因：</b>影现播放器打开产物时只会播放它自己的外壳视频，它内部藏着的那层内容不会被解出来，等于白藏一层。<br><br>` +
+        `<b>正确做法：</b><br>` +
+        `• 想嵌套多层：切换到「文件隐藏模式」，把它作为隐藏文件放进去（解压时可一层层解出）<br>` +
+        `• 只是要藏视频：直接选择原始视频文件` +
+        `</div>`;
+    showModal("影藏产物不能作为隐藏视频", body);
+}
+
 // 检测文件是否是 PolyFlix 产物（两种模式）。
 // 两种产物在外观上都是合法的 MP4，这里识别其隐藏数据标记。
 async function isPflxProduct(file) {
@@ -236,11 +267,17 @@ async function isPolyflixProduct(file) {
         const blob = file.slice(start, size);
         const buf = await blob.arrayBuffer();
         const bytes = new Uint8Array(buf);
-        // 从后往前找 PK\x05\x06 签名
-        for (let i = bytes.length - 4; i >= 0; i--) {
+        // 从后往前找 EOCD 签名（PK\x05\x06），并判断它描述的 ZIP 是不是"从文件头开始"
+        const dv = new DataView(buf);
+        for (let i = bytes.length - 22; i >= 0; i--) {
             if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B &&
                 bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
-                return true;
+                const cdSize = dv.getUint32(i + 12, true);
+                const cdOffset = dv.getUint32(i + 16, true);
+                // 产物 = MP4 + ZIP 拼接：ZIP 起点 = EOCD 偏移 - cd_size - cd_offset > 0；
+                // 普通独立 .zip 的 ZIP 起点为 0，不能误判成产物
+                if ((start + i) - cdSize - cdOffset > 0) return true;
+                break;  // 标准 ZIP 结构，继续按双视频模式检查
             }
         }
         // ---- 模式二：双视频 ----
@@ -424,12 +461,29 @@ setupDropZone("dz-mp4", "input-mp4", async files => {
     return [r];  // 统一返回数组
 });
 
+// 判断一个已选文件是不是 PolyFlix 产物，并在文件对象上留下 isProduct 标记
+// （exe 模式由 Python 端返回时就打好；浏览器/拖放模式就地检测后写入，供列表渲染小字提示）
+async function detectProduct(f) {
+    if (f.isProduct === true) return true;
+    if (f.slice && await isPolyflixProduct(f)) {
+        f.isProduct = true;
+        return true;
+    }
+    return false;
+}
+
 // 隐藏文件选择：zip 模式追加多选；dual 模式单选替换
-setupDropZone("dz-hidden", "input-hidden", files => {
+setupDropZone("dz-hidden", "input-hidden", async files => {
     if (isDualMode()) {
         // 双视频模式：只取第一个，替换式选择
         const f = Array.from(files)[0];
         if (!f) return;
+        // 产物不能当隐藏视频（播放器只播它的外壳，内层解不出来）——嵌套请用文件隐藏模式
+        if (await detectProduct(f)) {
+            addClientLog(`⚠️ 拒绝选择 PolyFlix 产物作为隐藏视频: ${f.name}`, "error");
+            showDualHiddenWarning(f.name);
+            return;
+        }
         if (!looksLikeVideo(f.name)) {
             addClientLog(`⚠️ 双视频模式建议选择视频文件（${f.name} 可能不是视频）`, "error");
         }
@@ -439,6 +493,12 @@ setupDropZone("dz-hidden", "input-hidden", files => {
         return;
     }
     const incoming = Array.from(files);
+    // zip 模式：产物可以套娃（解压后得到产物本身，再解一次即可），只提示不拦截
+    for (const f of incoming) {
+        if (await detectProduct(f)) {
+            addClientLog(`ℹ️ ${f.name} 是影藏产物，将按「套娃」方式嵌入（解压后需再解一次）`);
+        }
+    }
     const existingKeys = new Set(state.hiddenFiles.map(f => `${f.name}|${f.size}|${f.path || f.lastModified || 0}`));
     let added = 0;
     for (const f of incoming) {
@@ -466,10 +526,13 @@ function renderHiddenFiles() {
         zone.classList.add("has-file");
         reselectHint.style.display = "flex";
         info.innerHTML = state.hiddenFiles.map((f, i) =>
-            `<div class="file-item">` +
+            `<div class="file-item${f.isProduct ? " has-tag" : ""}">` +
             `<span class="file-item-name">${escapeHtml(f.name)}</span>` +
             `<span class="file-item-size">${fmtSize(f.size)}</span>` +
             `<button class="file-remove-btn" data-idx="${i}" title="移除此文件">✕</button>` +
+            (f.isProduct
+                ? `<span class="file-item-tag">影藏产物 · 套娃嵌入：解压后得到的是产物本身，需要再解一次</span>`
+                : "") +
             `</div>`
         ).join("");
         // 绑定删除按钮
@@ -1356,7 +1419,7 @@ document.getElementById("about-btn").addEventListener("click", () => {
     const body =
         `<div class="about-box">` +
         `<div class="about-logo">` +
-        `<img src="/static/影藏PolyFlix-logo.png" alt="影藏 PolyFlix">` +
+        `<img src="/static/PolyFlix-logo.png?v=20260921c" alt="影藏 PolyFlix">` +
         `<div class="about-name">影藏 <span class="brand-en">PolyFlix</span></div>` +
         `<div class="about-author">作者： hcllmsx</div>` +
         `</div>` +

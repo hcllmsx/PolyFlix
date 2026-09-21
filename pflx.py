@@ -2,7 +2,8 @@
 
 产物结构（一个完全合法的 MP4）：
 
-    [ a.mp4 原样字节（ftyp/moov/mdat...） ]
+    [ a.mp4 字节（ftyp/moov/mdat...，构建时会在 moov 里写入「备注」制作信息，
+        只改元数据、不动音视频数据） ]
     [ free box: size(4) + 'free'(4) [+ largesize(8)]
         └─ PFLX 头部（22 + name_len 字节） + 载荷（b 视频的原始字节）]
 

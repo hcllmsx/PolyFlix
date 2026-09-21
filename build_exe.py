@@ -27,6 +27,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 VERSION_FILE = os.path.join(HERE, "VERSION")
 VERSION_INFO_FILE = os.path.join(HERE, "version_info.txt")
 
+# 不需要打包 ffmpeg：外壳 MP4 的「备注」由 mutagen（纯 Python，200KB）写入，
+# 就地改 moov 元数据，不重新编码，1GB 文件约 0.07s。
+# （万一 mutagen 认不出某个畸形文件，会自动退回系统里的 ffmpeg，缺了也只是少一条备注）
+
 
 def read_version():
     """读取 VERSION 文件，返回字符串如 '26.8.8'。"""

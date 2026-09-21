@@ -199,6 +199,14 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
 .dz-files .file-remove-btn:hover {
     background: #ef4444; border-color: #ef4444; color: #fff;
 }
+/* 套娃提示：隐藏文件本身是影藏产物时，条目下方的小字说明 */
+.dz-files .file-item.has-tag { flex-wrap: wrap; row-gap: 3px; }
+.dz-files .file-item-tag {
+    flex: 1 0 100%; min-width: 0;
+    font-size: 0.72rem;
+    color: var(--warning);
+    line-height: 1.35;
+}
 
 /* Config grid（右栏内） */
 .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
