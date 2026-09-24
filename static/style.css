@@ -267,9 +267,15 @@ body.log-open { padding-bottom: calc(var(--footer-height) + 30px + var(--log-pan
     align-items: center; gap: 16px;
 }
 
+/* 第 3 步区块内的操作行：按钮右下角对齐 */
+.step-actions {
+    display: flex; justify-content: flex-end;
+    margin-top: 14px;
+}
+
 /* Build button */
 .build-btn {
-    min-width: 300px; padding: 15px 48px; font-size: 1.05rem; font-weight: 700;
+    min-width: 220px; padding: 13px 40px; font-size: 1.05rem; font-weight: 700;
     color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
     border: none; border-radius: var(--radius); cursor: pointer;
     transition: all 0.2s;
@@ -412,12 +418,6 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
     font-size: 0.72rem; color: var(--muted); margin-left: 6px;
 }
 
-/* 文件大小提示 */
-.size-hint {
-    font-size: 0.75rem; color: var(--muted); text-align: center;
-    margin-bottom: 4px; opacity: 0.7;
-}
-.size-hint.warn { color: var(--warning); opacity: 1; }
 .app-footer a {
     color: var(--accent); text-decoration: none;
     transition: opacity 0.15s;

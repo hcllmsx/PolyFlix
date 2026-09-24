@@ -682,6 +682,8 @@ def do_build(mp4_path: str, hidden_paths: list, cfg: dict, mp4_display_name: str
         _active_tmpdirs.add(tmpdir)
     try:
         log(f"========== 收到构建请求 ==========")
+        if not mp4_path:
+            raise ValueError("未选择有效的伪装视频文件（MP4 路径为空），请重新点击选择视频后再影藏。")
         log(f"MP4: {mp4_path}")
         log(f"隐藏文件数: {len(hidden_paths)}")
         for i, hp in enumerate(hidden_paths):

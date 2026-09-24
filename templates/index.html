@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>影藏 PolyFlix</title>
     <link rel="icon" href="/static/polyflix-favicon.ico?v=20260921c">
-    <link rel="stylesheet" href="/static/style.css?v=20260821">
+    <link rel="stylesheet" href="/static/style.css?v=20260924">
 </head>
 <body>
     <!-- 主体：两栏布局（居中），标题在主体内顶部 -->
@@ -169,13 +169,16 @@
                             <div class="hint" id="hint"></div>
                         </div>
                     </div>
+
+                    <div class="step-actions">
+                        <button class="build-btn" id="build-btn">开始影藏</button>
+                    </div>
                 </section>
             </div>
         </div>
 
-        <!-- 构建区：页面下方居中，不分栏 -->
+        <!-- 构建区：结果展示 -->
         <div class="build-area">
-            <div class="size-hint" id="size-hint">无文件大小上限（支持 &gt;4GB）。构建需要约源文件总大小 2 倍的磁盘空间。</div>
             <div class="result" id="result">
                 <div class="result-icon" id="result-icon">✅</div>
                 <div class="result-text">
@@ -187,7 +190,6 @@
                     <button class="redownload-btn" id="redownload-btn" style="display:none">重新下载</button>
                 </div>
             </div>
-            <button class="build-btn" id="build-btn">构建伪装文件</button>
         </div>
     </main>
 
@@ -256,6 +258,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=20260916"></script>
+    <script src="/static/app.js?v=20260924"></script>
 </body>
 </html>

@@ -393,7 +393,7 @@ function looksLikeVideo(name) {
 // ---- 拖放区 ----
 // exe 模式：点击 → pywebview 原生文件对话框（拿本地路径，不走 HTTP 上传）
 // 浏览器模式：点击 → <input type="file">；支持拖放
-function setupDropZone(zoneId, inputId, onFiles, onPywebviewSelect) {
+function setupDropZone(zoneId, inputId, onFiles, onPywebviewSelect, kind) {
     const zone = document.getElementById(zoneId);
     const input = document.getElementById(inputId);
 
@@ -410,6 +410,7 @@ function setupDropZone(zoneId, inputId, onFiles, onPywebviewSelect) {
         }
     });
     input.addEventListener("change", () => {
+        if (isExeMode()) { input.value = ""; return; }  // exe 用对话框/拖放（Python 注入真实路径），input 不参与
         if (input.files.length) onFiles(input.files);
         input.value = "";  // 重置，使再次选择同一文件也能触发 change
     });
@@ -417,16 +418,38 @@ function setupDropZone(zoneId, inputId, onFiles, onPywebviewSelect) {
     ["dragenter", "dragover"].forEach(e => zone.addEventListener(e, ev => {
         ev.preventDefault(); zone.classList.add("dragover");
     }));
-    ["dragleave", "drop"].forEach(e => zone.addEventListener(e, ev => {
-        ev.preventDefault(); zone.classList.remove("dragover");
-    }));
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+
     zone.addEventListener("drop", e => {
+        e.preventDefault(); zone.classList.remove("dragover");
+        // exe 模式：拖放由 Python 端 pywebview DOM 事件注入真实路径后回调 __polyflixOnDropped。
+        // 注意 pywebview 的 JS 是在页面加载完成后才注入的，不能在注册期用 isExeMode() 选分支，
+        // 必须在事件触发时判断，否则 exe 里会注册浏览器分支，混入无本地路径的 File 对象。
+        if (isExeMode()) return;
         if (e.dataTransfer.files.length) onFiles(e.dataTransfer.files);
     });
 }
 
+// exe 模式拖放后，由 Python 端注入真实路径并调用此分发器（复用点击选择时的同一套产物校验）
+window.__polyflixOnDropped = function (result, kind) {
+    const cb = kind === "mp4" ? handleMp4Files : handleHiddenFiles;
+    if (!cb) return;
+    if (result && result.error === "polyflix_product") {
+        showPolyflixWarning(result.name || "该文件");
+        return;
+    }
+    if (!result || !result.files || !result.files.length) return;
+    cb(result.files);
+};
+
 // MP4 选择
-setupDropZone("dz-mp4", "input-mp4", async files => {
+async function handleMp4Files(files) {
+    // exe 模式只接受带真实路径的文件（无路径 File 来自原生 drop，无法用于本地构建，
+    // 且其异步产物检测完成后会覆盖掉 Python 端已设置的带路径版本，必须直接丢弃）
+    if (isExeMode()) {
+        files = Array.from(files).filter(f => f.path);
+        if (!files.length) return;
+    }
     const file = files[0];
 
     // dev 模式 / 拖放：file 是 File 对象，用 JS 检测是否 PolyFlix 产物
@@ -446,7 +469,9 @@ setupDropZone("dz-mp4", "input-mp4", async files => {
     document.getElementById("mp4-name").textContent = state.mp4.name;
     document.getElementById("mp4-reselect").style.display = "block";
     addClientLog(`选择外壳伪装视频: ${state.mp4.name} (${fmtSize(state.mp4.size)})`);
-}, async () => {
+}
+
+setupDropZone("dz-mp4", "input-mp4", handleMp4Files, async () => {
     await waitForPywebviewApi();
     const r = await window.pywebview.api.select_mp4();
     if (!r) return null;
@@ -459,7 +484,7 @@ setupDropZone("dz-mp4", "input-mp4", async files => {
     }
 
     return [r];  // 统一返回数组
-});
+}, "mp4");
 
 // 判断一个已选文件是不是 PolyFlix 产物，并在文件对象上留下 isProduct 标记
 // （exe 模式由 Python 端返回时就打好；浏览器/拖放模式就地检测后写入，供列表渲染小字提示）
@@ -473,7 +498,12 @@ async function detectProduct(f) {
 }
 
 // 隐藏文件选择：zip 模式追加多选；dual 模式单选替换
-setupDropZone("dz-hidden", "input-hidden", async files => {
+async function handleHiddenFiles(files) {
+    // exe 模式只接受带真实路径的文件（无路径 File 来自原生 drop，无法用于本地构建）
+    if (isExeMode()) {
+        files = Array.from(files).filter(f => f.path);
+        if (!files.length) return;
+    }
     if (isDualMode()) {
         // 双视频模式：只取第一个，替换式选择
         const f = Array.from(files)[0];
@@ -499,23 +529,40 @@ setupDropZone("dz-hidden", "input-hidden", async files => {
             addClientLog(`ℹ️ ${f.name} 是影藏产物，将按「套娃」方式嵌入（解压后需再解一次）`);
         }
     }
-    const existingKeys = new Set(state.hiddenFiles.map(f => `${f.name}|${f.size}|${f.path || f.lastModified || 0}`));
+    // 去重：同名同大小视为同一文件。exe 拖放经 Python 注入真实路径，浏览器/原生 drop 仅拿到无路径的
+    // File 对象，二者可能各触发一次，这里统一按「保留带真实路径的那一份」合并，避免重复条目。
+    const norm = s => (s == null ? "" : String(s)).replace(/[\\/]+/g, "/").toLowerCase();
+    const baseKey = f => `${norm(f.name)}|${f.size}`;
     let added = 0;
     for (const f of incoming) {
-        const key = `${f.name}|${f.size}|${f.path || f.lastModified || 0}`;
-        if (!existingKeys.has(key)) {
+        const bk = baseKey(f);
+        const same = state.hiddenFiles.filter(g => baseKey(g) === bk);
+        if (f.path) {
+            // 带路径：已存在相同路径则跳过；同名同大小但无路径则用带路径的替换
+            if (same.some(g => norm(g.path) === norm(f.path))) continue;
+            const noPath = same.find(g => !g.path);
+            if (noPath) {
+                state.hiddenFiles[state.hiddenFiles.indexOf(noPath)] = f;
+            } else {
+                state.hiddenFiles.push(f);
+            }
+            added++;
+        } else {
+            // 无路径：仅当不存在同名同大小文件时才加入（避免与带路径的重复）
+            if (same.length) continue;
             state.hiddenFiles.push(f);
-            existingKeys.add(key);
             added++;
         }
     }
     renderHiddenFiles();
     addClientLog(`选择隐藏文件: +${added}（本次），共 ${state.hiddenFiles.length} 个`);
     incoming.forEach(f => addClientLog(`  └ ${f.name} (${fmtSize(f.size)})`));
-}, async () => {
+}
+
+setupDropZone("dz-hidden", "input-hidden", handleHiddenFiles, async () => {
     await waitForPywebviewApi();
     return await window.pywebview.api.select_hidden_files();
-});
+}, "hidden");
 
 // 渲染隐藏文件列表（每条带删除按钮）
 function renderHiddenFiles() {
@@ -1061,12 +1108,6 @@ function updateProgressFromLog(serverLog) {
     for (const s of stages) {
         if (text.includes(s.kw)) { setProgressStage(s.pct, s.label); break; }
     }
-    // 磁盘空间不足警告
-    const sizeHint = document.getElementById("size-hint");
-    if (text.includes("磁盘空间不足")) {
-        sizeHint.classList.add("warn");
-        sizeHint.innerHTML = "⚠️ 磁盘空间不足，构建可能失败！请清理磁盘或选择&ldquo;存储&rdquo;方式。";
-    }
 }
 
 // ---- 构建 ----
@@ -1137,11 +1178,9 @@ document.getElementById("build-btn").addEventListener("click", async () => {
 
     const btn = document.getElementById("build-btn");
     btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span>构建中…';
+    btn.innerHTML = '<span class="btn-spinner"></span>影藏中…';
     resultBox.classList.remove("shown");
     document.body.classList.add("building");
-    document.getElementById("size-hint").classList.remove("warn");
-    document.getElementById("size-hint").innerHTML = "无文件大小上限（支持 &gt;4GB）。构建需要约源文件总大小 2 倍的磁盘空间。";
 
     let buildOk = false;
     let buildData = null;  // {download_id/downloadUrl, filename, size}
@@ -1155,6 +1194,10 @@ document.getElementById("build-btn").addEventListener("click", async () => {
             // ---- exe 模式：js_api 本地路径直读，不走 HTTP 上传 ----
             await waitForPywebviewApi();
             const mp4Path = state.mp4.path;
+            if (!mp4Path) {
+                alert("未能获取视频的本地路径，请点击此区域用系统对话框重新选择伪装视频。");
+                return;
+            }
             const hiddenPaths = state.hiddenFiles.map(f => f.path);
             const result = await window.pywebview.api.start_build(
                 mp4Path, JSON.stringify(hiddenPaths), JSON.stringify(state.config), state.mp4.name
@@ -1218,7 +1261,7 @@ document.getElementById("build-btn").addEventListener("click", async () => {
         finishProgress(buildOk);
         stopPolling();  // 停止轮询，做最后一次同步
         btn.disabled = false;
-        btn.textContent = "构建伪装文件";
+        btn.textContent = "开始影藏";
         document.body.classList.remove("building");
     }
 
@@ -1397,14 +1440,10 @@ document.getElementById("new-file-btn").addEventListener("click", () => {
     resultBox.classList.remove("error");
     document.getElementById("redownload-btn").style.display = "none";
 
-    // 重置空间提示
-    document.getElementById("size-hint").classList.remove("warn");
-    document.getElementById("size-hint").innerHTML = "无文件大小上限（支持 &gt;4GB）。构建需要约源文件总大小 2 倍的磁盘空间。";
-
     // 重置构建按钮（防止处于 disabled 状态）
     const buildBtn = document.getElementById("build-btn");
     buildBtn.disabled = false;
-    buildBtn.textContent = "构建伪装文件";
+    buildBtn.textContent = "开始影藏";
     document.body.classList.remove("building");
 
     addClientLog(`新建文件：已清空伪装视频和 ${hiddenCount} 个隐藏文件，回到初始状态`);

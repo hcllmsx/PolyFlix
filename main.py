@@ -197,6 +197,73 @@ class JsApi:
             return {"ok": False, "error": f"写入失败: {e}"}
 
 
+# ---------------------------------------------------------------------------
+# exe 模式拖放：pywebview 的 DOM 事件能拿到被拖入文件的真实本地路径
+# （webview 原生 drop 事件的 File 对象没有 .path，无法用于本地构建），
+# 因此在这里注册 drop 监听，复用与 select_* 一致的产物校验逻辑，
+# 再把结果用 evaluate_js 桥接回前端的 window.__polyflixOnDropped。
+# ---------------------------------------------------------------------------
+def _describe_dropped_mp4(path):
+    """单文件（MP4 外壳）：复用与 select_mp4 一致的产品拦截逻辑。"""
+    try:
+        if is_polyflix_product(path):
+            return {"error": "polyflix_product", "name": os.path.basename(path)}
+        return {"files": [{"path": path, "name": os.path.basename(path),
+                           "size": os.path.getsize(path)}]}
+    except Exception as e:
+        log(f"拖放解析 MP4 出错: {e}", level="error")
+        return {"error": "read_error", "name": os.path.basename(path)}
+
+
+def _describe_dropped_hidden(paths):
+    """多文件（隐藏内容）：复用与 select_hidden_files 一致的产物标记逻辑。"""
+    files = []
+    for p in paths:
+        try:
+            item = {"path": p, "name": os.path.basename(p), "size": os.path.getsize(p)}
+            try:
+                if is_polyflix_product(p):
+                    item["isProduct"] = True
+            except Exception:
+                pass
+            files.append(item)
+        except Exception as e:
+            log(f"跳过无法读取的路径 {p!r}: {e}", level="warning")
+    return {"files": files}
+
+
+def handle_dom_drop(event, kind):
+    try:
+        files_meta = (event.get("dataTransfer") or {}).get("files", [])
+        paths = [f["pywebviewFullPath"] for f in files_meta if f.get("pywebviewFullPath")]
+        if not paths:
+            return
+        if kind == "mp4":
+            result = _describe_dropped_mp4(paths[0])
+        else:
+            result = _describe_dropped_hidden(paths)
+        webview.windows[0].evaluate_js(
+            "window.__polyflixOnDropped(" + json.dumps(result, ensure_ascii=False) + f", '{kind}')"
+        )
+    except Exception as ex:
+        log(f"处理拖放事件出错: {ex}", level="error")
+
+
+def register_dom_drop_handlers():
+    """窗口页面加载完成后注册 exe 拖放监听（此时 DOM 元素已存在）。"""
+    if getattr(register_dom_drop_handlers, "_registered", False):
+        return
+    register_dom_drop_handlers._registered = True
+    try:
+        win = webview.windows[0]
+        win.dom.get_element("#dz-mp4").events.drop += lambda e: handle_dom_drop(e, "mp4")
+        win.dom.get_element("#dz-hidden").events.drop += lambda e: handle_dom_drop(e, "hidden")
+        log("已注册 exe 拖放处理（真实本地路径）")
+    except Exception as e:
+        log(f"注册 exe 拖放处理失败: {e}", level="error")
+        register_dom_drop_handlers._registered = False  # 允许下次重试
+
+
 def wait_for_server(timeout=15):
     """轮询 /api/health 直到服务器就绪或超时。"""
     deadline = time.time() + timeout
@@ -259,6 +326,8 @@ def main():
         maximized=True,    # 启动即最大化（用户仍可手动还原）
         js_api=JsApi(),    # 注入 JS 桥接
     )
+    # 页面加载完成后注册 exe 拖放监听（能拿到真实本地路径）
+    webview.windows[0].events.loaded += register_dom_drop_handlers
     webview.start()
     # 窗口关闭 → webview.start() 返回 → 清理临时构建文件 → 进程退出
     cleanup_builds()
