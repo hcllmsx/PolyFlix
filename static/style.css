@@ -434,6 +434,7 @@ body.log-open .log-panel { bottom: calc(var(--footer-height) + 30px); }
     color: #fbbf24; font-weight: 600; text-decoration: none;
 }
 .footer-update-hint.hint-new a:hover { text-decoration: underline; }
+.footer-update-hint.hint-new .hint-sep { opacity: .5; margin: 0 6px; }
 .footer-update-hint.hint-latest { color: #34d399; opacity: 0.85; }
 .footer-update-hint.hint-checking { color: var(--muted); opacity: 0.7; }
 .footer-update-hint.hint-error {

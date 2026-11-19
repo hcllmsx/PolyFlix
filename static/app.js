@@ -38,8 +38,10 @@ function renderUpdateHint(state, newVer) {
         case "new":
             updateHintEl.classList.add("hint-new");
             updateHintEl.innerHTML =
-                `<a href="https://github.com/hcllmsx/PolyFlix/releases" target="_blank" rel="noopener">` +
-                `有新版本 v${newVer}，点击下载</a>`;
+                `有新版本 v${newVer}　` +
+                `<a href="https://polyflix.sxrec.com/" target="_blank" rel="noopener">前往官网</a>` +
+                `<span class="hint-sep">·</span>` +
+                `<a href="https://github.com/hcllmsx/PolyFlix/releases" target="_blank" rel="noopener">GitHub 下载</a>`;
             break;
         case "latest":
             updateHintEl.textContent = "";
