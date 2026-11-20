@@ -13,6 +13,7 @@ import json
 import threading
 import urllib.request
 import shutil
+import webbrowser
 
 import uvicorn
 import webview
@@ -306,7 +307,112 @@ def cleanup_builds():
     _builds.clear()
 
 
+WEBVIEW2_DOWNLOAD_URL = "https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/#download-section"
+DOTNET_DOWNLOAD_URL = "https://dotnet.microsoft.com/zh-cn/download/dotnet-framework"
+_WEBVIEW2_MIN_VERSION = (86, 0, 622, 0)
+_WEBVIEW2_CLIENT_GUIDS = (
+    "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",  # WebView2 Runtime
+    "{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}",  # Edge Beta
+    "{0D50BFEC-CD6A-4F9A-964C-C7416E3ACB10}",  # Edge Dev
+    "{65C35B14-6C1D-4122-AC46-7148CC9D6497}",  # Edge Canary
+)
+
+
+def _parse_version_tuple(ver_str):
+    try:
+        parts = [int(p) for p in str(ver_str).strip().split(".")]
+        while len(parts) < 4:
+            parts.append(0)
+        return tuple(parts[:4])
+    except Exception:
+        return (0, 0, 0, 0)
+
+
+def check_webview2_runtime():
+    """检测 Windows 下 WebView2 所需的运行环境（与 pywebview 的判定口径一致）。
+
+    返回 (ok, reason)：
+    - (True, "")          环境就绪
+    - (False, "dotnet")   缺少 .NET Framework 4.6.2+
+    - (False, "webview2") 缺少 Microsoft Edge WebView2 Runtime（或版本过低）
+    """
+    if sys.platform != "win32":
+        return True, ""
+
+    import winreg
+
+    # 1. 检查 .NET Framework 4.6.2+（Release >= 394802）
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full",
+        ) as key:
+            release, _ = winreg.QueryValueEx(key, "Release")
+            if int(release) < 394802:
+                return False, "dotnet"
+    except Exception:
+        return False, "dotnet"
+
+    # 2. 检查 WebView2 Runtime（兼容 64 位 / 32 位 / 当前用户安装路径）
+    reg_locations = (
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\EdgeUpdate\Clients"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\EdgeUpdate\Clients"),
+    )
+    for guid in _WEBVIEW2_CLIENT_GUIDS:
+        for root, base_path in reg_locations:
+            try:
+                with winreg.OpenKey(root, rf"{base_path}\{guid}") as key:
+                    pv, _ = winreg.QueryValueEx(key, "pv")
+                    if pv and _parse_version_tuple(pv) >= _WEBVIEW2_MIN_VERSION:
+                        return True, ""
+            except Exception:
+                continue
+
+    return False, "webview2"
+
+
+def show_missing_runtime_dialog(reason):
+    """使用 Windows 原生弹窗提示缺少 WebView2 / .NET 环境，避免静默降级到 IE11。"""
+    if reason == "dotnet":
+        url = DOTNET_DOWNLOAD_URL
+        msg = (
+            "未检测到 .NET Framework 4.6.2 及以上版本，无法加载现代渲染内核（WebView2）。\n\n"
+            "请先安装 .NET Framework 4.6.2+，安装完成后重新启动影藏 PolyFlix。\n\n"
+            "是否立即打开微软官方下载页面？"
+        )
+    else:
+        url = WEBVIEW2_DOWNLOAD_URL
+        msg = (
+            "未检测到 Microsoft Edge WebView2 Runtime（或版本过低）。\n\n"
+            "缺少该组件会导致界面样式错乱、背景变白且功能异常，因此已阻止启动。\n"
+            "请安装微软官方的「WebView2 运行时（常青独立安装程序）」，安装完成后重新打开影藏 PolyFlix。\n\n"
+            "是否立即打开微软官方下载页面？"
+        )
+
+    title = "影藏 PolyFlix - 缺少运行环境"
+    if sys.platform == "win32":
+        import ctypes
+        MB_YESNO = 0x00000004
+        MB_ICONWARNING = 0x00000030
+        MB_SETFOREGROUND = 0x00010000
+        IDYES = 6
+        res = ctypes.windll.user32.MessageBoxW(
+            None, msg, title, MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND
+        )
+        if res == IDYES:
+            webbrowser.open(url)
+    else:
+        print(f"{title}\n{msg}\n{url}", flush=True)
+
+
 def main():
+    # 启动前检测 WebView2 运行环境，避免缺失时被 pywebview 静默降级到 IE11
+    ok, reason = check_webview2_runtime()
+    if not ok:
+        show_missing_runtime_dialog(reason)
+        sys.exit(1)
+
     # 启动后端服务（守护线程，主进程退出时自动结束）
     t = threading.Thread(target=run_server, daemon=True)
     t.start()
@@ -328,7 +434,10 @@ def main():
     )
     # 页面加载完成后注册 exe 拖放监听（能拿到真实本地路径）
     webview.windows[0].events.loaded += register_dom_drop_handlers
-    webview.start()
+    if sys.platform == "win32":
+        webview.start(gui="edgechromium")
+    else:
+        webview.start()
     # 窗口关闭 → webview.start() 返回 → 清理临时构建文件 → 进程退出
     cleanup_builds()
 

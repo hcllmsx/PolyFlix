@@ -17,7 +17,7 @@ from datetime import datetime
 # ---- 软件身份信息（改官网/作者改这里） ----
 APP_NAME = "影藏 PolyFlix"
 OFFICIAL_SITE = "https://polyflix.sxrec.com/"
-AUTHOR_NAME = "火车啦啦"
+AUTHOR_NAME = "莫莫先生"
 AUTHOR_URL = "https://space.bilibili.com/255947051"
 
 # 版本号位置：源码运行 = 项目根目录；PyInstaller 打包后 = _MEIPASS 根目录

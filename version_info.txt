@@ -3,8 +3,8 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
     # filevers / prodvers 必须是 4 元组 (major, minor, build, revision)
-    filevers=(26, 9, 24, 0),
-    prodvers=(26, 9, 24, 0),
+    filevers=(26, 11, 20, 0),
+    prodvers=(26, 11, 20, 0),
     mask=0x3f,        # 有效位掩码
     flags=0x0,        # VS_FF_* 属性位
     OS=0x40004,       # VOS_NT_WINDOWS32
@@ -18,14 +18,14 @@ VSVersionInfo(
       StringTable(
         u'040904B0',   # LangID_English(US) + CodePage_Unicode
         [
-        StringStruct(u'CompanyName', u'hcllmsx'),
+        StringStruct(u'CompanyName', u'莫莫先生'),
         StringStruct(u'FileDescription', u'影藏 PolyFlix - 视频多态文件工具'),
-        StringStruct(u'FileVersion', u'26.9.24.0'),
+        StringStruct(u'FileVersion', u'26.11.20.0'),
         StringStruct(u'InternalName', u'影藏 PolyFlix'),
-        StringStruct(u'LegalCopyright', u'© 2026 hcllmsx. 保留所有权利。'),
+        StringStruct(u'LegalCopyright', u'© 2026 莫莫先生. 保留所有权利。'),
         StringStruct(u'OriginalFilename', u'PolyFlix.exe'),
         StringStruct(u'ProductName', u'影藏 PolyFlix'),
-        StringStruct(u'ProductVersion', u'26.9.24'),
+        StringStruct(u'ProductVersion', u'26.11.20'),
         ])
       ]),
     VarFileInfo([VarStruct(u'Translation', [0x0409, 1200])])

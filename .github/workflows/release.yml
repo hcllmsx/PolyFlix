@@ -1,0 +1,70 @@
+name: Release Announcement
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v7
+
+      - name: Extract Changelog and Build Announcement
+        id: build_notes
+        shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          if (Test-Path "VERSION") {
+            $ver = (Get-Content -Raw -Encoding UTF8 "VERSION").Trim()
+          } else {
+            $ver = $env:REF_NAME.TrimStart('v')
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$ver"
+
+          $notes = "Release v$ver"
+          if (Test-Path "CHANGELOG.md") {
+            $changelog = Get-Content -Raw -Encoding UTF8 "CHANGELOG.md"
+            $esc = [regex]::Escape($ver)
+            $pattern = '(?ms)^##\s+\[?v?' + $esc + '\]?.*?\r?\n(.*?)(?=^##\s+|\Z)'
+            if ($changelog -match $pattern) {
+              $extracted = $matches[1].Trim()
+              if ($extracted) { $notes = $extracted }
+            }
+          }
+
+          $repo = $env:REPO_NAME
+          $bodyLines = @(
+            '### 更新内容',
+            '',
+            $notes,
+            '',
+            '---',
+            '',
+            '### 下载方式请扫描以下二维码',
+            '',
+            '> 抱歉以网盘形式发布，希望这是暂时的。转存至网盘能为我带来一点微薄收益以维持项目更新，感谢理解。指着这个吃饭是不够的，但每周能买一包泡面是可以的。万一如果有多的，那都用来充 TOKEN 啦。',
+            '',
+            '<p align="center">',
+            "  <img src=`"https://raw.githubusercontent.com/$repo/main/docs/media/qr-quark-PolyFlix.svg`" width=`"220`" alt=`"夸克网盘下载二维码（影藏 PolyFlix）`" />",
+            '</p>'
+          )
+          $finalNotes = $bodyLines -join [Environment]::NewLine
+          [System.IO.File]::WriteAllText((Join-Path $PWD "release_notes.txt"), $finalNotes, [System.Text.Encoding]::UTF8)
+
+      - name: Create GitHub Release (Announcement Only)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: '影藏 PolyFlix v${{ steps.build_notes.outputs.version }}'
+          body_path: release_notes.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: false

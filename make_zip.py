@@ -1,11 +1,11 @@
-"""把 dist/PolyFlix 目录打包成 zip，用于分发。
+"""把 out_put/PolyFlix 目录打包成 zip，用于分发。
 
 用法：
     python make_zip.py
 
 输出：
-    dist/PolyFlix-v<版本号>-portable.zip          ← 压缩包（含校验值注释）
-    dist/PolyFlix-v<版本号>-portable.zip.sha256   ← SHA-256 校验文件
+    out_put/PolyFlix-v<版本号>-portable.zip          ← 压缩包（含校验值注释）
+    out_put/PolyFlix-v<版本号>-portable.zip.sha256   ← SHA-256 校验文件
 
 zip 内部结构：
     PolyFlix/                  ← 外层文件夹（解压后得到一个干净的 PolyFlix 目录）
@@ -27,7 +27,8 @@ import sys
 import zipfile
 from datetime import datetime
 
-SRC_DIR = os.path.join("dist", "PolyFlix")
+OUT_DIR = "out_put"
+SRC_DIR = os.path.join(OUT_DIR, "PolyFlix")
 # zip 内外层文件夹名（解压后得到的目录名）
 TOP_DIR_IN_ZIP = "PolyFlix"
 
@@ -71,7 +72,7 @@ def main():
 
     # 输出文件名带版本号：PolyFlix-v26.8.8-portable.zip
     zip_filename = f"PolyFlix-v{version}-portable.zip"
-    out_zip = os.path.join("dist", zip_filename)
+    out_zip = os.path.join(OUT_DIR, zip_filename)
     sha256_file = out_zip + ".sha256"
 
     # 清理旧的输出文件（含旧命名 PolyFlix-portable.zip 及可能残留的 .md5）
@@ -79,9 +80,9 @@ def main():
         out_zip,
         sha256_file,
         out_zip + ".md5",
-        os.path.join("dist", "PolyFlix-portable.zip"),         # 旧命名（无版本号）
-        os.path.join("dist", "PolyFlix-portable.zip.sha256"),  # 旧命名
-        os.path.join("dist", "PolyFlix-portable.zip.md5"),     # 旧命名
+        os.path.join(OUT_DIR, "PolyFlix-portable.zip"),         # 旧命名（无版本号）
+        os.path.join(OUT_DIR, "PolyFlix-portable.zip.sha256"),  # 旧命名
+        os.path.join(OUT_DIR, "PolyFlix-portable.zip.md5"),     # 旧命名
     ]
     for old in stale_patterns:
         if os.path.exists(old):

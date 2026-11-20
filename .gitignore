@@ -14,6 +14,7 @@ env/
 # ===== PyInstaller 打包产物 =====
 build/
 dist/
+out_put/
 *.spec
 
 # ===== 运行/测试临时文件 =====

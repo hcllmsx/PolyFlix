@@ -4,7 +4,7 @@
     python build_exe.py
 
 输出：
-    dist/PolyFlix/PolyFlix.exe  （--onedir 模式，整个文件夹即可分发）
+    out_put/PolyFlix/PolyFlix.exe  （--onedir 模式，整个文件夹即可分发）
 
 首次打包需 1-3 分钟，之后再打会快些。
 """
@@ -18,14 +18,15 @@ from datetime import datetime
 #  想改公司名/版权持有人，直接改下面两行即可；版本号自动读 VERSION 文件。
 # ============================================================
 APP_NAME        = "影藏 PolyFlix"                       # 产品名称 / 内部名
-COMPANY_NAME    = "hcllmsx"                       # 公司名称
-COPYRIGHT_HOLDER = "hcllmsx"                      # 版权持有人
+COMPANY_NAME    = "莫莫先生"                      # 公司名称
+COPYRIGHT_HOLDER = "莫莫先生"                     # 版权持有人
 DESCRIPTION    = "影藏 PolyFlix - 视频多态文件工具"     # 文件说明
 ORIGINAL_EXE   = "PolyFlix.exe"                         # 原始文件名
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VERSION_FILE = os.path.join(HERE, "VERSION")
 VERSION_INFO_FILE = os.path.join(HERE, "version_info.txt")
+OUT_DIR = os.path.join(HERE, "out_put")
 
 # 不需要打包 ffmpeg：外壳 MP4 的「备注」由 mutagen（纯 Python，200KB）写入，
 # 就地改 moov 元数据，不重新编码，1GB 文件约 0.07s。
@@ -111,6 +112,7 @@ cmd = [
     sys.executable, "-m", "PyInstaller",
     "--noconfirm",
     "--clean",
+    "--distpath", OUT_DIR,
     "--name", "PolyFlix",
     "--onedir",          # 目录模式，启动快（比 --onefile 快很多）
     "--windowed",        # 无控制台黑窗，纯桌面应用
@@ -157,8 +159,8 @@ def main():
     ret = subprocess.run(cmd)
     if ret.returncode == 0:
         print("\n[OK] 打包完成！")
-        print("    输出目录：dist/PolyFlix/")
-        print("    双击 dist/PolyFlix/PolyFlix.exe 即可运行")
+        print("    输出目录：out_put/PolyFlix/")
+        print("    双击 out_put/PolyFlix/PolyFlix.exe 即可运行")
     else:
         print("\n[FAIL] 打包失败，请看上方日志")
         sys.exit(1)

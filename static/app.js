@@ -59,14 +59,29 @@ function renderUpdateHint(state, newVer) {
     }
 }
 
-// 检查更新：fetch 仓库根目录 VERSION 文件
-// 源顺序：gh-proxy 加速先上（国内直连 GitHub raw 常超时），失败再退回 GitHub 官方。
-// gh-proxy 用法就是在完整链接前拼代理域名，见 https://gh-proxy.com/docs/github-accelerator
-const VERSION_FILE = "https://raw.githubusercontent.com/hcllmsx/PolyFlix/main/VERSION";
+// 检查更新：以已发布的 GitHub Release tag 为唯一版本源（releases/latest）
+// 源顺序：gh-proxy 加速先上，失败退回 GitHub 官方 API；单次超时 6 秒。
+const RELEASE_API = "https://api.github.com/repos/hcllmsx/PolyFlix/releases/latest";
 const UPDATE_SOURCES = [
-    { name: "gh-proxy", url: `https://gh-proxy.com/${VERSION_FILE}` },
-    { name: "GitHub 官方", url: VERSION_FILE },
+    { name: "gh-proxy", url: `https://gh-proxy.com/${RELEASE_API}` },
+    { name: "GitHub 官方", url: RELEASE_API },
 ];
+const VERSION_PATTERN = /^\d+(\.\d+)+$/;
+const UPDATE_TIMEOUT_MS = 6000;
+
+async function fetchWithTimeout(url, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, {
+            cache: "no-store",
+            headers: { "Accept": "application/vnd.github+json" },
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 async function checkForUpdate(manual = false) {
     if (!currentVersion) return;
@@ -75,12 +90,13 @@ async function checkForUpdate(manual = false) {
     let lastError = null;
     for (const src of UPDATE_SOURCES) {
         try {
-            // 加时间戳防 CDN / gh-proxy 边缘缓存
-            const r = await fetch(`${src.url}?t=${Date.now()}`, { cache: "no-store" });
+            const r = await fetchWithTimeout(src.url, UPDATE_TIMEOUT_MS);
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const text = (await r.text()).trim();
-            if (!text) throw new Error("空响应");
-            remote = text;
+            const data = await r.json();
+            const tag = String(data && data.tag_name ? data.tag_name : "").trim();
+            const ver = tag.replace(/^v/i, "");
+            if (!VERSION_PATTERN.test(ver)) throw new Error("版本号格式无效");
+            remote = ver;
             lastError = null;
             break;
         } catch (e) {
@@ -174,6 +190,60 @@ function hideToast() {
     if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
 }
 
+// ---- 滚动条自动隐藏（滚动时 / 鼠标靠近右边缘 18px 显现） ----
+(function () {
+    let scrollTimer = null;
+    const rootEl = document.documentElement;
+    window.addEventListener("scroll", () => {
+        rootEl.classList.add("is-scrolling");
+        if (scrollTimer) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => rootEl.classList.remove("is-scrolling"), 800);
+    }, { passive: true });
+    window.addEventListener("mousemove", e => {
+        if (window.innerWidth - e.clientX <= 18) {
+            rootEl.classList.add("near-scrollbar");
+        } else {
+            rootEl.classList.remove("near-scrollbar");
+        }
+    }, { passive: true });
+    window.addEventListener("mouseleave", () => {
+        rootEl.classList.remove("near-scrollbar");
+    });
+})();
+
+// ---- 模态弹窗统一状态收口（背景锁定 + 交互隔离 + 防拖选误关） ----
+let _backdropMouseDownTarget = null;
+document.addEventListener("mousedown", e => {
+    _backdropMouseDownTarget = e.target;
+}, true);
+
+let _modalLockScrollY = 0;
+function syncModalState() {
+    const anyOpen = Boolean(document.querySelector(".modal-overlay.visible"));
+    const locked = document.body.classList.contains("modal-open");
+    if (anyOpen && !locked) {
+        _modalLockScrollY = window.scrollY;
+        document.body.style.top = `-${_modalLockScrollY}px`;
+        document.body.classList.add("modal-open");
+    } else if (!anyOpen && locked) {
+        document.body.classList.remove("modal-open");
+        document.body.style.top = "";
+        const rootStyle = document.documentElement.style;
+        const prevBehavior = rootStyle.scrollBehavior;
+        rootStyle.scrollBehavior = "auto";
+        window.scrollTo(0, _modalLockScrollY);
+        rootStyle.scrollBehavior = prevBehavior;
+    }
+    const background = document.querySelector(".app-main");
+    if (background) background.toggleAttribute("inert", anyOpen);
+}
+
+function setModalOpen(overlayEl, open) {
+    if (!overlayEl) return;
+    overlayEl.classList.toggle("visible", open);
+    syncModalState();
+}
+
 // ---- 模态警告对话框 ----
 const modalOverlay = document.getElementById("modal-overlay");
 const modalTitle = document.getElementById("modal-title");
@@ -181,13 +251,17 @@ const modalBody = document.getElementById("modal-body");
 const modalBtn = document.getElementById("modal-btn");
 
 function showModal(title, bodyHtml) {
+    const modal = modalOverlay.querySelector(".modal");
+    if (modal) modal.classList.remove("modal-about");
     modalTitle.textContent = title;
     modalBody.innerHTML = bodyHtml;
-    modalOverlay.classList.add("visible");
+    setModalOpen(modalOverlay, true);
 }
-modalBtn.addEventListener("click", () => modalOverlay.classList.remove("visible"));
+modalBtn.addEventListener("click", () => setModalOpen(modalOverlay, false));
 modalOverlay.addEventListener("click", e => {
-    if (e.target === modalOverlay) modalOverlay.classList.remove("visible");
+    if (e.target === modalOverlay && _backdropMouseDownTarget === modalOverlay) {
+        setModalOpen(modalOverlay, false);
+    }
 });
 
 // PolyFlix 产物警告
@@ -322,9 +396,9 @@ function shakePwdModal() {
 // 返回 Promise：true=继续构建，false=取消构建
 function showPwdConfirmDialog() {
     return new Promise(resolve => {
-        pwdModalOverlay.classList.add("visible");
+        setModalOpen(pwdModalOverlay, true);
         const cleanup = () => {
-            pwdModalOverlay.classList.remove("visible");
+            setModalOpen(pwdModalOverlay, false);
             pwdModalOverlay.removeEventListener("click", onOverlayClick);
             pwdBtnBack.removeEventListener("click", onBack);
             pwdBtnOnce.removeEventListener("click", onOnce);
@@ -1462,13 +1536,13 @@ document.getElementById("about-btn").addEventListener("click", () => {
         `<div class="about-logo">` +
         `<img src="/static/PolyFlix-logo.png?v=20260921c" alt="影藏 PolyFlix">` +
         `<div class="about-name">影藏 <span class="brand-en">PolyFlix</span></div>` +
-        `<div class="about-author">作者： hcllmsx</div>` +
+        `<div class="about-author">作者：莫莫先生</div>` +
         `</div>` +
         `<div class="about-info">` +
         `<p>把秘密藏进一段能正常播放的 MP4 视频里。两种模式：</p>` +
         `<p class="about-item">· 文件隐藏模式（MP4+ZIP 拼接，改后缀 .zip 解压取出）</p>` +
         `<p class="about-item">· 双视频模式（隐藏视频原样存进 MP4，配合姊妹项目影现播放器直接播放）</p>` +
-        `<p><b>Bilibili：</b> 火车啦啦 ` +
+        `<p><b>Bilibili：</b> 莫莫先生 ` +
         `<a href="https://space.bilibili.com/255947051" target="_blank" rel="noopener">` +
         `https://space.bilibili.com/255947051</a></p>` +
         `<p><b>本项目仓库：</b><br>` +
@@ -1480,6 +1554,7 @@ document.getElementById("about-btn").addEventListener("click", () => {
         `<p><b>建议反馈：</b>` +
         `<a href="https://docs.qq.com/form/page/DRHJ3bmd6Q3RqaENT" target="_blank" rel="noopener">` +
         `软件意见建议反馈收集表</a></p>` +
+        `<p><b>开源协议：</b>本项目基于 GPL-3.0 协议开源</p>` +
         `</div>` +
         `</div>`;
     showModal(`影藏 PolyFlix${ver ? " " + ver : ""}`, body);
@@ -1492,7 +1567,7 @@ document.getElementById("about-btn").addEventListener("click", () => {
         closeX.className = "about-close";
         closeX.textContent = "✕";
         closeX.title = "关闭";
-        closeX.addEventListener("click", () => modalOverlay.classList.remove("visible"));
+        closeX.addEventListener("click", () => setModalOpen(modalOverlay, false));
         modal.appendChild(closeX);
     }
 });

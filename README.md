@@ -18,13 +18,11 @@ MP4 外壳（伪装层，正常播放）
 
 ## 快速开始（Windows）
 
-1. 安装 [Python 3.8+](https://www.python.org/downloads/)（安装时勾选 Add to PATH）
-2. 双击 `1-run_menu.bat`，选择 `[1] 本地运行`
-3. 浏览器自动打开 `http://127.0.0.1:18181`
+前往 [Releases](https://github.com/hcllmsx/PolyFlix/releases) 或官网 <https://polyflix.sxrec.com/> 获取便携版压缩包，解压后直接运行 `PolyFlix.exe` 即可（无需额外安装 Python 或 ffmpeg）。
 
-> 打包成便携版 exe：同样双击 `1-run_menu.bat`，选择 `[2] 打包为 exe`，产物在 `dist\PolyFlix\`，并附带 zip 分发包。不需要额外准备 ffmpeg。
+## 从源码运行
 
-## 手动启动
+需要 [Python 3.8+](https://www.python.org/downloads/)（安装时勾选 Add to PATH）：
 
 ```bash
 pip install -r requirements.txt
@@ -32,6 +30,15 @@ python -m uvicorn app:app --host 127.0.0.1 --port 18181
 ```
 
 浏览器打开 `http://127.0.0.1:18181`。
+
+如需打包为便携版 exe：
+
+```bash
+python build_exe.py
+python make_zip.py
+```
+
+产物位于 `out_put/PolyFlix/` 及 `out_put/PolyFlix-v<版本号>-portable.zip`。
 
 ## 使用方法
 
